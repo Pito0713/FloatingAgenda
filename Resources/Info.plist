@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.pito0713.floatingagenda</string>
+	<key>CFBundleExecutable</key>
+	<string>FloatingAgenda</string>
+	<key>CFBundleName</key>
+	<string>FloatingAgenda</string>
+	<key>CFBundleDisplayName</key>
+	<string>懸浮行程</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>顯示你的行程在懸浮卡片上</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>顯示並勾選你的提醒事項</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>顯示你的行程在懸浮卡片上</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>顯示並勾選你的提醒事項</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>本機自用，無網路連線。</string>
+</dict>
+</plist>
