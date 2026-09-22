@@ -101,6 +101,7 @@ git diff HEAD | codex exec -s read-only -c project_doc_max_bytes=0 "審查 <stdi
 | M5 | 選單列 | 用 `defaults write` 改隱藏 ID 後 `--dump` 的「是否隱藏」欄位跟著變 | 存「隱藏 ID」而非「顯示 ID」的語意、透明度 0.3–1.0 夾限、同名行事曆用 identifier 當 key |
 | M6 | 權限與異常 | mock 的 needsPermission／failed 狀態能被 snapshot 畫出來 | 各授權狀態（含 writeOnly）的分支、深層連結字串、失敗不 crash |
 | M7 | 打磨交付 | PLAN §7.1 七條全綠 | README 完整性、殘留 TODO、深淺色模式 |
+| M9.1 | 專案資料層 | `--dump` 的 `== Projects ==` 列出所有未標示「已搬遷」的專案，且不含非專案檔案；掃描前後 mtime／大小／內容／權限／目錄樹皆未變 | actor 隔離是否誠實、世代競態、Timer 與 observer 洩漏、`@Observable` 無意義重繪、解析器對髒輸入的邊界、排序穩定性、有無寫入路徑、**測試是否具鑑別力** |
 
 ---
 
@@ -135,3 +136,4 @@ git diff HEAD | codex exec -s read-only -c project_doc_max_bytes=0 "審查 <stdi
 | M6 | ✅ 三個狀態變體＋深層連結實測 | 未發現問題 | 自查 4 點名風險皆通過 | ✅ CLOSE | `0569af7` |
 | M8 | ✅ 兩變體 snapshot＋收合高度與位置實測 | 1×MEDIUM | CONFIRMED 1／已修，自行發現 2／已修 | ✅ CLOSE | `ec1f444` |
 | M7 | ✅ §7.1 七條全通過 | 未發現問題 | 自查 5 點名風險通過，自行發現 1 項已修 | ✅ CLOSE | `a7fe814` |
+| M9.1 | ✅ 128 測試全綠、紅線全乾淨、畫面逐位元組未變 | 1×HIGH 7×MEDIUM 2×LOW | CONFIRMED 10／修 9，atime 一條裁決不修並揭露 | ✅ CLOSE | （見下方） |
