@@ -214,11 +214,11 @@ final class SessionParserTests: XCTestCase {
         XCTAssertEqual(item.blocker, "（後端）API 無法連線")
     }
 
-    /// 真實交接檔出現過的寫法：開頭是「無」但後面接了真正待處理的事
+    /// 常見寫法：開頭是「無」但後面接了真正待處理的事
     func testNoTechnicalBlockerButSomethingPendingIsStillABlocker() throws {
-        let text = "## 卡住的點\n\n無技術卡點，但有一項流程偏差待使用者裁決\n"
+        let text = "## 卡住的點\n\n無重大問題，但有一項待使用者確認\n"
         let item = try XCTUnwrap(parse(text))
-        XCTAssertEqual(item.blocker, "無技術卡點，但有一項流程偏差待使用者裁決")
+        XCTAssertEqual(item.blocker, "無重大問題，但有一項待使用者確認")
     }
 
     func testBlockerTakesFirstParagraphOnly() throws {

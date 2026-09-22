@@ -26,7 +26,8 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 
 ## 建置與安裝
 
-需要 Xcode（或 Command Line Tools）與 macOS 15 以上。
+需要 macOS 15 以上，以及 **Swift 6.0 以上的工具鏈**（Xcode 16＋或對應的 Command Line Tools）。
+用 `swift --version` 確認；版本太舊會在 `swift build` 一開始就失敗。
 
 ```bash
 bash scripts/build.sh     # swift build → 組成 .app → ad-hoc 簽章，產物在 build/
@@ -83,7 +84,11 @@ plist 且行程結束時會被 cfprefsd 寫回去，清不掉。
 
 ```bash
 build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --dump
-# 唯讀印出：授權狀態、行事曆與提醒清單（含 ID／來源／是否隱藏）、今天的行程、今天的提醒
+# 唯讀印出：授權狀態、行事曆與提醒清單（含 ID／來源／是否隱藏）、今天的行程、今天的提醒，
+# 以及 ~/.agent-sessions 底下各專案的進度（名稱、待辦、卡住原因）
+#
+# ⚠️ 輸出包含你真實的行程、提醒與專案內容，**不會自動去識別化**。
+#    貼到 issue、聊天室或任何公開的地方之前請先自行檢查
 
 build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 # 用 mock 資料輸出 PNG（scale 2），不讀取也不寫入任何真實資料：
@@ -105,6 +110,19 @@ build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 
 要事後調整：**系統設定 → 隱私權與安全性 → 行事曆／提醒事項**。
 改完不必重開 App，卡片最多 3 秒就會自己載入資料。
+
+## 專案進度（可選）
+
+App 會唯讀掃描 `~/.agent-sessions/<專案>/latest.md` 這種交接文件，把各專案的燈號、
+完成比例與待辦顯示出來。這是作者自己的工作流程慣例，**完全是可選的**：
+
+- 沒有這個目錄是正常的，不是安裝失敗。`--dump` 會印「❌ 找不到 ~/.agent-sessions」，
+  App 的其他功能（行程、提醒）完全不受影響
+- 掃描**只讀不寫**：不會新增、修改或刪除那些檔案，也不會改變它們的權限
+- 每個專案讀 `latest.md`，超過 256KB 的檔案會被略過；標題含「已搬遷」的專案會被忽略
+
+格式是一般的 markdown：`# 標題`、`> 狀態：🟢 順暢`、`> 最後更新：2026-09-18 15:20`、
+`## 進行中` 底下的 `- [x]` / `- [ ]` 清單、`## 卡住的點` 區段。缺欄位不會壞，會用預設值。
 
 ## 疑難排解
 
