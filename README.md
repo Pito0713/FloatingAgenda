@@ -171,7 +171,9 @@ defaults delete io.github.pito0713.floatingagenda
 | Key | 型別 | 預設 | 說明 |
 |-----|------|------|------|
 | `panelVisible` | Bool | `true` | 是否顯示懸浮卡片 |
-| `panelCollapsed` | Bool | `false` | 是否為收合模式 |
+| `displayMode` | String | `full` | `full`／`collapsed`／`character`；不認得的值一律回 `full` |
+| `panelCollapsed` | Bool | `false` | **舊版遺留**。首次啟動新版時會轉成 `displayMode` 並保留不刪（方便退回舊版），之後新程式碼只讀寫 `displayMode` |
+| `characterTopRightX` / `characterTopRightY` | Double | 無 | 角色模式的面板**右上角**，與卡片的位置分開存。兩個缺一即視為沒有記錄 |
 | `opacity` | Double | `1.0` | 透明度，讀寫都夾限在 0.3–1.0 |
 | `hiddenCalendarIDs` | [String] | `[]` | **被隱藏的**行事曆 ID（所以新增的行事曆預設顯示） |
 | `hiddenReminderListIDs` | [String] | `[]` | 被隱藏的提醒清單 ID |
@@ -239,6 +241,7 @@ Floating/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.11.1 | 2026-09-22 | M9.2 顯示模式 | 「展開／收合」兩態改成**完整／收合／角色**三態：選單列新增顯示模式分段控制、舊 `panelCollapsed` 自動遷移成 `displayMode`、面板改為錨點感知（卡片錨左上角、角色錨右上角且寬高都隨內容、無視窗陰影），兩者的位置分開記憶；角色模式目前是 64×64 佔位色塊 |
 | 0.11.0 | 2026-09-22 | M9.1 專案資料層 | 唯讀掃描 `~/.agent-sessions/<專案>/latest.md`：`SessionParser`（純函式，容錯 BOM／CRLF／空檔／格式漂移）、`ProjectStore`（60 秒重讀、睡眠喚醒重讀、256KB 上限、世代守衛、相等性守衛）、`--dump` 新增 `== Projects ==` 區段；測試 76 → 128 |
 | 0.10.1 | 2026-09-21 | 收合區塊標題 | 行程列上方加動態標題（正在進行中／即將到來），並拉開行程與提醒之間的區隔 |
 | 0.10.0 | 2026-09-21 | 收合顯示即將到來 | 收合模式沒有進行中的行程時，改為顯示今天接下來最近的一筆；今天都結束了才顯示「今天沒有行程」 |

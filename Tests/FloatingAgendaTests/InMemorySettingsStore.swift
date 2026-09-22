@@ -17,6 +17,16 @@ final class InMemorySettingsStore: SettingsStore {
         storage[defaultName] ?? registered[defaultName]
     }
 
+    /// 只看「明確寫入」那一層，**不含** `register(defaults:)` 的後備值。
+    ///
+    /// 測試必須能分辨這兩者：`object(forKey:)` 對它們的回答一模一樣，
+    /// 但只有寫入那一層會存活到下一次啟動——真實的 `UserDefaults` 不會把
+    /// registration domain 寫進磁碟。少了這個存取器，
+    /// 「遷移有沒有真的寫進去」的測試不管實作對錯都會通過（2026-09-22 變異測試發現）。
+    func persistedObject(forKey defaultName: String) -> Any? {
+        storage[defaultName]
+    }
+
     func set(_ value: Any?, forKey defaultName: String) {
         if let value {
             storage[defaultName] = value

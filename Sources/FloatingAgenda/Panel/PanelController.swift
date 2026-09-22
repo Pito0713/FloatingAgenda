@@ -17,32 +17,104 @@ enum PanelMetrics {
     static let initialHeight: CGFloat = 200
     /// 收合模式頂部的專用拖曳區高度（PLAN §4.10）
     static let collapsedDragStripHeight: CGFloat = 24
+    /// 角色模式：小精靈 64×64pt（16×16 像素格，每格 4pt；M9 計畫 §4.2）
+    static let characterSize: CGFloat = 64
+    /// 角色四周的留白。面板大小＝看得到的內容大小，這段邊距留給角色自己畫的陰影
+    static let characterPadding: CGFloat = 8
 }
 
-/// 面板的根視圖：固定寬度、高度由內容決定，並把量到的高度回報給 PanelController。
+/// 面板用哪個角定位。
+///
+/// 完整與收合模式用**左上角**：寬度固定，高度隨內容變，使用者拖曳時抓的也是那一角。
+/// 角色模式用**右上角**：寬高都會隨內容變（小精靈 → 小精靈加泡泡 → 展開的卡片），
+/// 泡泡往左長、卡片往左下長，靠右上角定位小精靈才不會跳（M9 計畫 §5.4）。
+enum PanelAnchor {
+    case topLeft
+    case topRight
+
+    func point(of frame: NSRect) -> CGPoint {
+        switch self {
+        case .topLeft: CGPoint(x: frame.minX, y: frame.maxY)
+        case .topRight: CGPoint(x: frame.maxX, y: frame.maxY)
+        }
+    }
+
+    func frame(at anchor: CGPoint, size: NSSize) -> NSRect {
+        switch self {
+        case .topLeft:
+            NSRect(x: anchor.x, y: anchor.y - size.height,
+                   width: size.width, height: size.height)
+        case .topRight:
+            NSRect(x: anchor.x - size.width, y: anchor.y - size.height,
+                   width: size.width, height: size.height)
+        }
+    }
+}
+
+extension DisplayMode {
+    var anchor: PanelAnchor {
+        switch self {
+        case .full, .collapsed: .topLeft
+        case .character: .topRight
+        }
+    }
+
+    /// 真實內容尺寸回報進來之前的暫定值
+    var provisionalSize: NSSize {
+        switch self {
+        case .full, .collapsed:
+            return NSSize(width: PanelMetrics.width, height: PanelMetrics.initialHeight)
+        case .character:
+            let side = PanelMetrics.characterSize + PanelMetrics.characterPadding * 2
+            return NSSize(width: side, height: side)
+        }
+    }
+
+    /// 角色模式沒有毛玻璃底與邊框，陰影由角色自己畫（計畫 §5.4）
+    var wantsWindowShadow: Bool { self != .character }
+}
+
+/// 面板的根視圖：依注入的顯示模式決定內容，並把量到的**寬與高**回報給 PanelController。
+///
+/// 完整與收合模式的寬度固定 320pt、高度隨內容；角色模式兩者都隨內容。
+/// 回報 `CGSize` 而不是只回報高度，是角色模式的前提（M9 計畫 §5.4）。
+///
+/// `mode` 是**注入**的，不是自己去讀 `AppSettings`：顯示模式的唯一擁有者是
+/// `PanelController`，卡片右上角的箭頭與選單列的分段控制都必須走它，
+/// 否則位置記憶與錨點切換會被繞過（codex 2026-09-22 指出箭頭原本就繞過了）。
 struct PanelRootView: View {
-    let onHeightChange: (CGFloat) -> Void
+    let mode: DisplayMode
+    let onToggleCollapsed: () -> Void
+    let onSizeChange: (CGSize) -> Void
     private let store = AgendaStore.shared
-    private let settings = AppSettings.shared
-    /// 只用來觸發重繪；收合狀態一律直接讀 settings，不保留鏡像
-    /// （與 M5 修正 MenuBarView 時採用的同一個模式）
-    @State private var revision = 0
 
     var body: some View {
-        // 讀取 revision 建立重繪依賴。**不要用 `.id(revision)`**——那會把整個子樹
-        // 連同內部狀態一起丟棄重建，實際後果是點「展開」後 WidgetView 的
-        // isHoveringCard 被重設，游標還在卡片上但收合箭頭卻消失（2026-09-18 code review）
-        let _ = revision
-        return WidgetView(eventsState: store.eventsState,
+        content
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { size in
+                onSizeChange(size)
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch mode {
+        case .full, .collapsed:
+            widget
+        case .character:
+            CharacterPlaceholderView()
+        }
+    }
+
+    private var widget: some View {
+        WidgetView(eventsState: store.eventsState,
                    remindersState: store.remindersState,
                    pendingReminderIDs: store.pendingCompletion,
                    reminderError: store.completionError,
                    background: .blur,
-                   isCollapsed: settings.panelCollapsed,
-                   onToggleCollapsed: {
-                       settings.panelCollapsed.toggle()
-                       revision += 1
-                   },
+                   isCollapsed: mode == .collapsed,
+                   onToggleCollapsed: onToggleCollapsed,
                    onOpenEvent: { store.openInCalendar($0) },
                    onToggleReminder: { store.toggleCompletion($0) },
                    onOpenReminder: { store.openInReminders($0) },
@@ -50,43 +122,55 @@ struct PanelRootView: View {
                    onOpenReminderSettings: { store.openPrivacySettings(for: .reminder) })
             .frame(width: PanelMetrics.width)
             .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { height in
-                onHeightChange(height)
-            }
     }
 }
 
-/// 顯示／隱藏、高度同步、位置記憶、透明度。
+/// 顯示／隱藏、尺寸同步、位置記憶、透明度、顯示模式切換。
+///
+/// **顯示模式的唯一擁有者**：卡片右上角的箭頭與選單列的分段控制都必須走
+/// `setDisplayMode`。`@Observable` 讓已經開著的選單能跟著箭頭的切換更新
+/// （codex 2026-09-22 指出兩者會不同步）。
 @MainActor
+@Observable
 final class PanelController: NSObject, NSWindowDelegate {
-    private let settings: AppSettings
-    private let panel: FloatingPanel
-    private let hostingView: FirstMouseHostingView<PanelRootView>
-    /// 程式自己調整 frame 時不要把位置寫回設定（避免高度同步被當成使用者拖曳）
-    private var isAdjustingFrame = false
-    private var screenObserver: NSObjectProtocol?
+    /// 目前的顯示模式。`AppSettings` 是持久化層，這裡是執行期的單一事實來源
+    private(set) var displayMode: DisplayMode
+
+    @ObservationIgnored private let settings: AppSettings
+    @ObservationIgnored private let panel: FloatingPanel
+    @ObservationIgnored private let hostingView: FirstMouseHostingView<PanelRootView>
+    /// 程式自己調整 frame 時不要把位置寫回設定（避免尺寸同步被當成使用者拖曳）
+    @ObservationIgnored private var isAdjustingFrame = false
+    @ObservationIgnored private var screenObserver: NSObjectProtocol?
+    /// 每個模式上次量到的真實內容尺寸。
+    ///
+    /// 切換模式時拿它當初始尺寸，**不要**先擺一個佔位尺寸再指望
+    /// `onGeometryChange` 修正：那個回報只在量到的值**改變**時才觸發，
+    /// 而重新指派同型別的 rootView 會保留 SwiftUI 的視圖識別。
+    /// 若連續切換讓尺寸繞回原值，回報就不會再來一次，面板會卡在佔位尺寸上
+    /// （codex 2026-09-22 指出）。
+    @ObservationIgnored private var lastKnownSize: [DisplayMode: NSSize] = [:]
 
     /// settings 預設值不能直接寫 `.shared`：預設引數在 nonisolated 情境求值，
     /// Swift 6 語言模式會直接變成錯誤
     init(settings: AppSettings? = nil) {
-        self.settings = settings ?? .shared
-        panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0,
-                                                  width: PanelMetrics.width,
-                                                  height: PanelMetrics.initialHeight))
-        hostingView = FirstMouseHostingView(rootView: PanelRootView(onHeightChange: { _ in }))
+        let settings = settings ?? .shared
+        self.settings = settings
+        let mode = settings.displayMode
+        displayMode = mode
+        panel = FloatingPanel(contentRect: NSRect(origin: .zero, size: mode.provisionalSize))
+        hostingView = FirstMouseHostingView(
+            rootView: PanelRootView(mode: mode, onToggleCollapsed: {}, onSizeChange: { _ in }))
         super.init()
 
-        hostingView.rootView = PanelRootView(onHeightChange: { [weak self] height in
-            self?.setContentHeight(height)
-        })
         // 不設成 [] 的話，hosting view 自己的尺寸約束會跟我們的 setFrame 打架
         hostingView.sizingOptions = []
         panel.contentView = hostingView
         panel.delegate = self
-        panel.alphaValue = self.settings.opacity
-        restoreFrame()
+        panel.alphaValue = settings.opacity
+        panel.hasShadow = mode.wantsWindowShadow
+        rebuildRootView()
+        restoreFrame(size: startingSize(for: mode))
         observeScreenChanges()
     }
 
@@ -97,6 +181,13 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     var isVisible: Bool { panel.isVisible }
+
+    /// 以下兩個唯讀屬性存在的唯一理由是**讓測試能驗證面板幾何的整合路徑**
+    /// （切換模式時位置存進哪個 key、還原到哪、陰影有沒有跟著換）。
+    /// codex 2026-09-22 指出原本的測試全在純函式層，controller 存錯 key
+    /// 或切換順序寫反都測不出來。production 不使用這兩個屬性。
+    var panelFrame: NSRect { panel.frame }
+    var panelHasShadow: Bool { panel.hasShadow }
 
     /// 用 orderFrontRegardless：面板不搶焦點，也不能讓 App 被啟動起來
     func show() {
@@ -115,20 +206,81 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.alphaValue = AppSettings.clampOpacity(value)
     }
 
-    /// 高度跟著內容伸縮，但**上緣位置不動**
-    private func setContentHeight(_ height: CGFloat) {
-        guard height.isFinite, height > 0 else { return }
-        var frame = panel.frame
-        guard abs(frame.height - height) > 0.5 else { return }
+    // MARK: - 顯示模式
 
-        let top = frame.maxY
-        frame.size.height = height
-        frame.origin.y = top - height
+    /// 切換顯示模式。選單列的分段控制與卡片右上角的箭頭都走這裡。
+    ///
+    /// 順序有意義：**先**把目前模式的位置存起來，再換模式、換陰影、重建畫面，
+    /// **量到真實尺寸之後**才擺位置。顛倒過來會把舊位置寫進新模式的 key。
+    ///
+    /// 特別注意最後一步不能省成「先擺佔位尺寸，等 `onGeometryChange` 再修正」：
+    /// `onGeometryChange` 只在量到的值**改變**時才觸發，而重新指派同型別的 rootView
+    /// 會保留 SwiftUI 的視圖識別。若連續切換讓尺寸繞回原值，回報就不會再來一次，
+    /// 面板會卡在佔位尺寸上（codex 2026-09-22 指出）。
+    func setDisplayMode(_ mode: DisplayMode) {
+        guard mode != displayMode else { return }
+
+        savePosition(for: displayMode)
+        displayMode = mode
+        settings.displayMode = mode
+        panel.hasShadow = mode.wantsWindowShadow
+
+        rebuildRootView()
+        restoreFrame(size: startingSize(for: mode))
+        panel.invalidateShadow()
+    }
+
+    /// rootView 是值型別，重新指派才會讓 SwiftUI 讀到新的 mode
+    private func rebuildRootView() {
+        hostingView.rootView = PanelRootView(
+            mode: displayMode,
+            onToggleCollapsed: { [weak self] in
+                guard let self else { return }
+                // 卡片右上角那顆箭頭只在完整／收合之間切換，
+                // 不把角色模式塞進去（M9 計畫 §4.1）
+                setDisplayMode(displayMode == .collapsed ? .full : .collapsed)
+            },
+            onSizeChange: { [weak self] size in
+                self?.setContentSize(size)
+            })
+    }
+
+    /// 切換到某個模式時要用的起始尺寸：優先用上次量到的真實值。
+    ///
+    /// 試過改用 `hostingView.fittingSize` 同步量測，**實測回傳 (0, 0)**——
+    /// `sizingOptions = []` 把 hosting view 的內建尺寸計算關掉了，
+    /// 而那個設定是必要的（否則它會跟我們的 `setFrame` 打架）。
+    /// 所以改用快取：第一次進某個模式仍走靜態佔位值，但那一次尺寸一定會改變，
+    /// `onGeometryChange` 必然觸發；之後每次切換都有真實值可用。
+    private func startingSize(for mode: DisplayMode) -> NSSize {
+        lastKnownSize[mode] ?? mode.provisionalSize
+    }
+
+    // MARK: - 尺寸同步
+
+    /// 面板尺寸跟著內容伸縮，但**目前模式的錨點不動**。
+    ///
+    /// 完整／收合模式錨在左上角（寬度固定，只有高度會變）；
+    /// 角色模式錨在右上角（寬高都會變）。
+    private func setContentSize(_ size: CGSize) {
+        guard size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return }
+
+        // 先記起來再判斷要不要調整：即使這次不用動 frame，
+        // 下次切回這個模式時就有真實尺寸可用
+        lastKnownSize[displayMode] = size
+
+        let frame = panel.frame
+        guard abs(frame.width - size.width) > 0.5
+                || abs(frame.height - size.height) > 0.5 else { return }
+
+        let anchor = displayMode.anchor
+        let target = anchor.frame(at: anchor.point(of: frame), size: size)
 
         isAdjustingFrame = true
-        // 保持上緣不動是 PLAN §4.1 的規則，但若那會讓卡片長到畫面外就必須夾回來——
+        // 保持錨點不動是規則，但若那會讓面板長到畫面外就必須夾回來——
         // 實際會遇到的情境是「把收合的卡片拖到螢幕底部，再展開」
-        panel.setFrame(Self.constrained(frame), display: true, animate: false)
+        panel.setFrame(Self.constrained(target, anchor: anchor), display: true, animate: false)
         isAdjustingFrame = false
         // 透明視窗的陰影不會自己跟著內容更新
         panel.invalidateShadow()
@@ -152,74 +304,110 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func recoverIfOffscreen() {
-        let size = NSSize(width: PanelMetrics.width, height: panel.frame.height)
-        let topLeft = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
-        guard !Self.isUsable(topLeft: topLeft, size: size) else {
+        let mode = displayMode
+        let anchor = mode.anchor
+        guard !Self.isUsable(frame: panel.frame) else {
             // 還看得到但可能有一部分超出邊界 → 夾回來就好，不必跳回預設位置
-            let fitted = Self.constrained(panel.frame)
+            let fitted = Self.constrained(panel.frame, anchor: anchor)
             if fitted != panel.frame {
                 isAdjustingFrame = true
                 panel.setFrame(fitted, display: true, animate: false)
                 isAdjustingFrame = false
-                settings.panelTopLeft = CGPoint(x: fitted.minX, y: fitted.maxY)
+                savePosition(for: mode)
             }
             return
         }
-        let target = Self.defaultTopLeft(size: size)
-        applyTopLeft(target, size: size)
-        // applyTopLeft 期間 windowDidMove 被 isAdjustingFrame 擋掉，位置要自己寫回去
-        settings.panelTopLeft = target
+        let size = panel.frame.size
+        applyAnchor(Self.defaultAnchorPoint(for: mode, size: size), size: size, mode: mode)
+        // applyAnchor 期間 windowDidMove 被 isAdjustingFrame 擋掉，位置要自己寫回去
+        savePosition(for: mode)
     }
 
-    private func restoreFrame() {
-        let size = NSSize(width: PanelMetrics.width, height: panel.frame.height)
-        if let saved = settings.panelTopLeft, Self.isUsable(topLeft: saved, size: size) {
-            applyTopLeft(saved, size: size)
-        } else {
-            applyTopLeft(Self.defaultTopLeft(size: size), size: size)
+    private func restoreFrame(size: NSSize) {
+        let mode = displayMode
+        let target = Self.resolveAnchorPoint(for: mode,
+                                             saved: savedAnchorPoint(for: mode),
+                                             size: size)
+        // 尺寸已經是量到的真實值，所以水平垂直都可以當場夾限。
+        // （舊版在這裡用佔位高度，垂直夾限會把卡片推到錯的地方——實測存 y=200 會變成 286——
+        //   所以當時只夾水平，把垂直交給 setContentSize。現在不需要那個妥協了。）
+        applyAnchor(target, size: size, mode: mode)
+    }
+
+    /// 還原時要用哪個錨點：存過而且還看得到就用存的，否則回預設位置。
+    ///
+    /// 抽成 static 純函式是為了可測——模式切換時「舊模式存什麼、新模式還原到哪」
+    /// 是最容易寫錯的地方
+    static func resolveAnchorPoint(for mode: DisplayMode,
+                                   saved: CGPoint?,
+                                   size: NSSize) -> CGPoint {
+        if let saved, isUsable(frame: mode.anchor.frame(at: saved, size: size)) {
+            return saved
         }
+        return defaultAnchorPoint(for: mode, size: size)
+    }
+
+    private func savedAnchorPoint(for mode: DisplayMode) -> CGPoint? {
+        switch mode {
+        case .full, .collapsed: settings.panelTopLeft
+        case .character: settings.characterTopRight
+        }
+    }
+
+    private func savePosition(for mode: DisplayMode) {
+        let point = mode.anchor.point(of: panel.frame)
+        switch mode {
+        case .full, .collapsed: settings.panelTopLeft = point
+        case .character: settings.characterTopRight = point
+        }
+    }
+
+    private func applyAnchor(_ point: CGPoint, size: NSSize, mode: DisplayMode) {
+        let desired = Self.constrained(mode.anchor.frame(at: point, size: size),
+                                       anchor: mode.anchor)
+        isAdjustingFrame = true
+        panel.setFrame(desired, display: true)
+        isAdjustingFrame = false
     }
 
     /// 存的位置還能不能用。
     ///
-    /// 只檢查左上角那一個點是不夠的（2026-09-18 code review 第 3 條）：
-    /// 卡片高度會隨內容變動，左上角在畫面內、整張卡片卻大半在畫面外是做得到的。
-    /// 這裡要求卡片與某個螢幕的可視範圍有足夠的交集，否則就回預設位置。
-    private static func isUsable(topLeft: CGPoint, size: NSSize) -> Bool {
-        let frame = NSRect(x: topLeft.x, y: topLeft.y - size.height,
-                           width: size.width, height: size.height)
-        return NSScreen.screens.contains { screen in
+    /// 只檢查錨點那一個點是不夠的（2026-09-18 code review 第 3 條）：
+    /// 面板尺寸會隨內容變動，錨點在畫面內、整個面板卻大半在畫面外是做得到的。
+    /// 這裡要求面板與某個螢幕的可視範圍有足夠的交集，否則就回預設位置。
+    ///
+    /// 高度門檻取 `min(40, 面板高度)`：角色模式的面板只有 80pt 見方，
+    /// 寫死 40 對它仍然成立，但若之後有更小的內容，寫死值會讓它永遠判為不可用。
+    static func isUsable(frame: NSRect) -> Bool {
+        NSScreen.screens.contains { screen in
             let overlap = screen.visibleFrame.intersection(frame)
-            // 至少要露出卡片寬度的一半、以及上緣附近的一小段高度，
-            // 否則使用者等於看不到也抓不到它
-            return overlap.width >= size.width / 2 && overlap.height >= 40
+            return overlap.width >= frame.width / 2
+                && overlap.height >= min(40, frame.height)
         }
     }
 
-    /// 把 frame 夾回某個螢幕的可視範圍內。
-    ///
-    /// 選「交集面積最大」的那個螢幕當基準，多螢幕時才不會跳到奇怪的地方。
-    /// 卡片比螢幕還高時貼齊上緣——寧可露出上半部，因為日期與最近的行程在上面。
     /// 夾限要以哪個螢幕為基準。
     ///
-    /// 用**左上角**選，而不是用「交集面積最大」：上下排列的雙螢幕上，卡片變高會讓
-    /// 下方螢幕的交集變大，依面積選就會把原本完整在上方螢幕的卡片整個搬到下面去
-    /// （codex 2026-09-21 指出）。左上角是使用者拖曳時定位的那個角，也是高度伸縮時
-    /// 保持不動的錨點，拿它當基準最穩定。
-    private static func anchorScreen(for frame: NSRect) -> NSScreen? {
-        // 往內縮 1pt，避免卡片上緣剛好貼齊 visibleFrame.maxY 時 contains 判為 false
-        let anchor = CGPoint(x: frame.minX + 1, y: frame.maxY - 1)
-        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(anchor) }) {
+    /// 用**目前模式的錨點**選，而不是用「交集面積最大」：上下排列的雙螢幕上，
+    /// 卡片變高會讓下方螢幕的交集變大，依面積選就會把原本完整在上方螢幕的卡片
+    /// 整個搬到下面去（codex 2026-09-21 指出）。錨點是使用者拖曳時定位的那個角，
+    /// 也是尺寸伸縮時保持不動的點，拿它當基準最穩定。
+    private static func anchorScreen(for frame: NSRect, anchor: PanelAnchor) -> NSScreen? {
+        // 往內縮 1pt，避免面板上緣剛好貼齊 visibleFrame.maxY 時 contains 判為 false
+        let point = anchor.point(of: frame)
+        let probe = CGPoint(x: anchor == .topLeft ? point.x + 1 : point.x - 1,
+                            y: point.y - 1)
+        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(probe) }) {
             return screen
         }
-        // 左上角不在任何螢幕上（例如卡片大部分已在畫面外）才退回看交集
+        // 錨點不在任何螢幕上（例如面板大部分已在畫面外）才退回看交集
         return NSScreen.screens
             .filter { $0.visibleFrame.intersects(frame) }
             .max { $0.visibleFrame.intersection(frame).area < $1.visibleFrame.intersection(frame).area }
     }
 
-    private static func constrained(_ frame: NSRect) -> NSRect {
-        guard let screen = anchorScreen(for: frame) else {
+    static func constrained(_ frame: NSRect, anchor: PanelAnchor) -> NSRect {
+        guard let screen = anchorScreen(for: frame, anchor: anchor) else {
             return frame   // 完全不在任何螢幕上，交給 recoverIfOffscreen 處理
         }
 
@@ -229,47 +417,46 @@ final class PanelController: NSObject, NSWindowDelegate {
         if result.minX < visible.minX { result.origin.x = visible.minX }
         if result.maxY > visible.maxY { result.origin.y = visible.maxY - result.height }
         if result.minY < visible.minY { result.origin.y = visible.minY }
+        // 比螢幕還高時貼齊上緣——寧可露出上半部，日期與最近的行程都在上面
         if result.height > visible.height { result.origin.y = visible.maxY - result.height }
         return result
     }
 
-    /// 預設位置：主螢幕右上角，往內留 20pt。
-    /// 「主螢幕」取 `NSScreen.screens.first`（有選單列的主要顯示器），
-    /// 不是 `NSScreen.main`——後者是「目前有鍵盤焦點的螢幕」，多螢幕時會把卡片丟到副螢幕。
-    private static func defaultTopLeft(size: NSSize) -> CGPoint {
-        guard let screen = NSScreen.screens.first ?? NSScreen.main else {
-            return CGPoint(x: PanelMetrics.screenInset, y: size.height + PanelMetrics.screenInset)
-        }
-        let visible = screen.visibleFrame
-        return CGPoint(x: visible.maxX - size.width - PanelMetrics.screenInset,
-                       y: visible.maxY - PanelMetrics.screenInset)
-    }
-
-    private func applyTopLeft(_ topLeft: CGPoint, size: NSSize) {
-        // 這裡**刻意不做垂直夾限**：還原位置時高度還是 PanelMetrics.initialHeight 的佔位值，
-        // 依它夾限會把卡片推到錯的地方（實測存 y=200 會變成 286）。
-        // 垂直方向交給 setContentHeight 在真實高度出來之後處理。
-        var desired = NSRect(x: topLeft.x, y: topLeft.y - size.height,
-                             width: size.width, height: size.height)
-        desired.origin.x = Self.constrainedX(desired)
-        isAdjustingFrame = true
-        panel.setFrame(desired, display: false)
-        isAdjustingFrame = false
-    }
-
-    /// 只夾水平方向。寬度是固定的 320pt，不像高度會隨內容變動，隨時夾都安全。
-    private static func constrainedX(_ frame: NSRect) -> CGFloat {
-        guard let screen = anchorScreen(for: frame) else { return frame.origin.x }
+    /// 只夾水平方向。完整／收合模式的寬度固定 320pt，不像高度會隨內容變動，隨時夾都安全。
+    private static func constrainedX(_ frame: NSRect, anchor: PanelAnchor) -> CGFloat {
+        guard let screen = anchorScreen(for: frame, anchor: anchor) else { return frame.origin.x }
         let visible = screen.visibleFrame
         if frame.maxX > visible.maxX { return visible.maxX - frame.width }
         if frame.minX < visible.minX { return visible.minX }
         return frame.origin.x
     }
 
+    /// 預設位置。
+    ///
+    /// 「主螢幕」取 `NSScreen.screens.first`（有選單列的主要顯示器），
+    /// 不是 `NSScreen.main`——後者是「目前有鍵盤焦點的螢幕」，多螢幕時會把面板丟到副螢幕。
+    ///
+    /// 完整／收合模式放右上角；角色模式放**右下角**（計畫 §5.4），
+    /// 這樣泡泡往左長、卡片往左上長都還在畫面內。
+    static func defaultAnchorPoint(for mode: DisplayMode, size: NSSize) -> CGPoint {
+        guard let screen = NSScreen.screens.first ?? NSScreen.main else {
+            return CGPoint(x: PanelMetrics.screenInset + size.width,
+                           y: size.height + PanelMetrics.screenInset)
+        }
+        let visible = screen.visibleFrame
+        let inset = PanelMetrics.screenInset
+        switch mode {
+        case .full, .collapsed:
+            return CGPoint(x: visible.maxX - size.width - inset, y: visible.maxY - inset)
+        case .character:
+            return CGPoint(x: visible.maxX - inset, y: visible.minY + inset + size.height)
+        }
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowDidMove(_ notification: Notification) {
         guard !isAdjustingFrame else { return }
-        settings.panelTopLeft = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        savePosition(for: displayMode)
     }
 }

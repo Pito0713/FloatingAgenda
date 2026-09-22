@@ -37,6 +37,8 @@ struct MenuBarView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
+            displayModeRow
+
             opacityRow
 
             Divider()
@@ -57,6 +59,31 @@ struct MenuBarView: View {
         }
         .padding(14)
         .frame(width: 280, alignment: .leading)
+    }
+
+    /// 顯示模式三選一（M9 計畫 §4.1）。
+    ///
+    /// 讀寫都走 `PanelController`：它是顯示模式的唯一擁有者，負責存舊模式的位置、
+    /// 換錨點、換陰影、還原新模式的位置。直接寫 `settings` 會讓面板幾何錯亂。
+    /// 它是 `@Observable`，所以選單開著時若使用者按了卡片上的收合箭頭，
+    /// 這裡會跟著更新（codex 2026-09-22 指出兩者原本會不同步）。
+    ///
+    /// snapshot 沒有 delegate，退回直接讀設定。
+    private var displayModeRow: some View {
+        Picker("顯示模式", selection: Binding(
+            get: { delegate?.panelController?.displayMode ?? settings.displayMode },
+            set: { newValue in
+                delegate?.panelController?.setDisplayMode(newValue)
+                revision += 1
+            }
+        )) {
+            ForEach(DisplayMode.allCases, id: \.self) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .labelsHidden()
     }
 
     private var filterSections: some View {

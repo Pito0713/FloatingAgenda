@@ -17,6 +17,19 @@ protocol SettingsStore: AnyObject {
 
 extension UserDefaults: SettingsStore {}
 
+/// 三種顯示模式（M9 計畫 §4.1）。舊版只有「展開／收合」兩態，遷移規則見 `AppSettings`
+enum DisplayMode: String, CaseIterable {
+    case full, collapsed, character
+
+    var label: String {
+        switch self {
+        case .full: "完整"
+        case .collapsed: "收合"
+        case .character: "角色"
+        }
+    }
+}
+
 /// UserDefaults 包裝（PLAN §5.5）。
 /// 存的是「被隱藏的」ID，之後新增的行事曆才會預設顯示。
 @MainActor
@@ -33,6 +46,9 @@ final class AppSettings {
         static let hiddenReminderListIDs = "hiddenReminderListIDs"
         static let panelTopLeftX = "panelTopLeftX"
         static let panelTopLeftY = "panelTopLeftY"
+        static let displayMode = "displayMode"
+        static let characterTopRightX = "characterTopRightX"
+        static let characterTopRightY = "characterTopRightY"
     }
 
     private let defaults: any SettingsStore
@@ -43,6 +59,21 @@ final class AppSettings {
             Key.panelVisible: true,
             Key.opacity: 1.0,
         ])
+        Self.migrateDisplayMode(in: defaults)
+    }
+
+    /// 舊版只有 `panelCollapsed` 兩態。第一次跑到有 `displayMode` 的版本時做一次轉換。
+    ///
+    /// **不用 `register(defaults:)`**：那只提供讀取時的後備值，不會真的寫進去，
+    /// 舊的 `panelCollapsed = true` 就會被無聲忽略、使用者的收合狀態憑空消失。
+    ///
+    /// `panelCollapsed` 刻意**保留不刪**，這樣使用者退回舊版還是能用。
+    /// 但新程式碼一律只讀寫 `displayMode`（計畫 §5.5），所以兩者之後會各走各的——
+    /// 退回舊版拿到的是「遷移當下」的收合狀態，不是最新的
+    private static func migrateDisplayMode(in defaults: any SettingsStore) {
+        guard defaults.object(forKey: Key.displayMode) == nil else { return }
+        let migrated: DisplayMode = defaults.bool(forKey: Key.panelCollapsed) ? .collapsed : .full
+        defaults.set(migrated.rawValue, forKey: Key.displayMode)
     }
 
     var panelVisible: Bool {
@@ -76,6 +107,40 @@ final class AppSettings {
     var hiddenReminderListIDs: Set<String> {
         get { Set(defaults.stringArray(forKey: Key.hiddenReminderListIDs) ?? []) }
         set { defaults.set(Array(newValue), forKey: Key.hiddenReminderListIDs) }
+    }
+
+    /// 顯示模式。讀到不認得的值（例如使用者用 `defaults write` 塞了錯字）一律回 `.full`
+    var displayMode: DisplayMode {
+        get {
+            guard let raw = defaults.object(forKey: Key.displayMode) as? String,
+                  let mode = DisplayMode(rawValue: raw) else { return .full }
+            return mode
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.displayMode) }
+    }
+
+    /// 角色模式的面板**右上角**。
+    ///
+    /// 與 `panelTopLeft` 分開存（計畫 §5.5）：角色模式的面板寬高都會隨內容變，
+    /// 靠右上角定位泡泡往左長、卡片往左下長，小精靈才不會跳。
+    /// 兩個座標缺一即視為沒有記錄。
+    var characterTopRight: CGPoint? {
+        get {
+            guard let x = defaults.object(forKey: Key.characterTopRightX) as? Double,
+                  let y = defaults.object(forKey: Key.characterTopRightY) as? Double else {
+                return nil
+            }
+            return CGPoint(x: x, y: y)
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Key.characterTopRightX)
+                defaults.removeObject(forKey: Key.characterTopRightY)
+                return
+            }
+            defaults.set(Double(newValue.x), forKey: Key.characterTopRightX)
+            defaults.set(Double(newValue.y), forKey: Key.characterTopRightY)
+        }
     }
 
     /// 面板左上角。兩個座標缺一即視為沒有記錄（回預設位置）。
