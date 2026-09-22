@@ -13,8 +13,14 @@ enum CharacterAnimation {
 
     /// 從時間算出第幾格。用絕對時間而不是累加狀態，
     /// 就算漏掉幾次更新也不會讓動畫偏掉
-    static func tick(at date: Date) -> Int {
-        Int(date.timeIntervalSinceReferenceDate / frameInterval)
+    static func tick(at date: Date, interval: TimeInterval = frameInterval) -> Int {
+        Int(date.timeIntervalSinceReferenceDate / max(interval, 0.001))
+    }
+
+    /// 皮膚宣告的 fps 換算成每格的秒數。外部皮膚可以宣告 1…12 fps，
+    /// 不用它的話所有皮膚都會被強制以 4 fps 播放（codex 2026-09-22 指出）
+    static func interval(for skin: Skin) -> TimeInterval {
+        1.0 / Double(max(1, min(12, skin.fps)))
     }
 
     /// 眨眼的時間點（§4.3：每 3–5 秒一次、持續 1 格）。
@@ -75,6 +81,38 @@ enum CharacterAnimation {
         }
         // 上下彈跳：兩格一循環
         return tick.isMultiple(of: 2) ? 0 : -pixelScale
+    }
+
+    /// 內建角色包成 `Skin`，讓渲染端只認得一種型別（M9 計畫 §4.6）。
+    /// 它**永遠存在、不能刪**，也是找不到外部皮膚時的後備
+    @MainActor
+    static let builtinSkin: Skin = {
+        var frames: [Mood: [CGImage]] = [:]
+        for mood in Mood.allCases {
+            frames[mood] = BuiltinCharacter.frames(for: mood).map { image(rows: $0, mood: mood) }
+        }
+        // 內建角色的眨眼格是**每種心情各一張**（顏色不同），而 `Skin` 只放一張。
+        // 這裡放 busy 的那張只是為了滿足型別；實際繪圖走
+        // `rows(mood:tick:)`，仍然會拿到該心情自己的眨眼格
+        let blink = BuiltinCharacter.blinkFrame(for: .busy).map { image(rows: $0, mood: .busy) }
+        return Skin(id: BuiltinCharacter.id,
+                    name: BuiltinCharacter.name,
+                    frames: frames,
+                    blink: blink,
+                    fps: Int(1 / frameInterval))
+    }()
+
+    /// 某個 tick 要畫的圖。外部皮膚沒有「每種心情各一張眨眼格」的概念，
+    /// 所以眨眼時一律用它自己的那一張
+    @MainActor
+    static func image(skin: Skin, mood: Mood, tick: Int) -> CGImage? {
+        if skin.id == BuiltinCharacter.id {
+            return image(rows: rows(mood: mood, tick: tick), mood: mood)
+        }
+        if isBlinking(tick: tick, mood: mood), let blink = skin.blink {
+            return blink
+        }
+        return skin.image(mood: mood, index: tick)
     }
 
     /// 格子轉 CGImage 每格都重算太浪費，而且會讓常駐動畫一直配置記憶體。

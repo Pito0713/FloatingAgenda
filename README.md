@@ -124,6 +124,69 @@ App 會唯讀掃描 `~/.agent-sessions/<專案>/latest.md` 這種交接文件，
 格式是一般的 markdown：`# 標題`、`> 狀態：🟢 順暢`、`> 最後更新：2026-09-18 15:20`、
 `## 進行中` 底下的 `- [x]` / `- [ ]` 清單、`## 卡住的點` 區段。缺欄位不會壞，會用預設值。
 
+## 自製角色
+
+角色模式的小精靈可以換成自己畫的。皮膚放在：
+
+```
+~/Library/Application Support/FloatingAgenda/Skins/<你的皮膚名稱>/
+```
+
+從選單列 →「打開皮膚資料夾…」可以直接開啟（資料夾不存在會先建立）。
+
+### 資料夾結構
+
+```
+Skins/my-cat/
+├── skin.json
+├── happy-0.png    happy-1.png
+├── busy-0.png     busy-1.png
+├── worried-0.png  worried-1.png
+├── sleepy-0.png
+└── blink.png          # 選用；沒有就不眨眼
+```
+
+### skin.json
+
+```json
+{
+  "formatVersion": 1,
+  "name": "我的貓",
+  "pixelSize": 16,
+  "fps": 4,
+  "frames": {
+    "happy":   ["happy-0.png", "happy-1.png"],
+    "busy":    ["busy-0.png", "busy-1.png"],
+    "worried": ["worried-0.png", "worried-1.png"],
+    "sleepy":  ["sleepy-0.png"]
+  },
+  "blink": "blink.png"
+}
+```
+
+四種心情的意思：`worried` 有逾期的事或專案卡住、`busy` 今天還有事、
+`happy` 全部清空、`sleepy` 讀不到資料。
+
+### 規則
+
+| 項目 | 限制 |
+|------|------|
+| `formatVersion` | 必須是 `1` |
+| `pixelSize` | 8–64。每張圖的尺寸要**剛好**是 `pixelSize × pixelSize` |
+| `fps` | 1–12 |
+| `frames` | 四種心情都要有，每種至少 1 格 |
+| 圖片格式 | PNG |
+| 檔名 | 只能是同一個資料夾裡的檔案。不接受 `/`、`..`，也不跟隨指到資料夾外面的捷徑 |
+| 大小 | `skin.json` 最大 64KB、單張圖片最大 256KB、一個皮膚最多 64 張圖 |
+
+**任何一條不符合，那個皮膚就不會出現在選單裡，App 不會因此出錯。**
+用 `--dump` 的 `== Skins ==` 區段可以看到每個皮膚是有效還是無效、以及無效的原因。
+
+皮膚只在**啟動時**與**打開選單列的角色下拉選單時**重新掃描。
+放進新皮膚後把選單關掉再打開就會看到。
+
+渲染一律用最近鄰插值放大到 64pt，所以像素會是銳利的方塊，不會被模糊化。
+
 ## 疑難排解
 
 ### 重建後卡片變空白、或又跳出授權視窗
@@ -173,6 +236,7 @@ defaults delete io.github.pito0713.floatingagenda
 | `panelVisible` | Bool | `true` | 是否顯示懸浮卡片 |
 | `displayMode` | String | `full` | `full`／`collapsed`／`character`；不認得的值一律回 `full` |
 | `panelCollapsed` | Bool | `false` | **舊版遺留**。首次啟動新版時會轉成 `displayMode` 並保留不刪（方便退回舊版），之後新程式碼只讀寫 `displayMode` |
+| `characterSkinID` | String | `builtin.pixel` | 選用的角色皮膚。外部皮膚是 `skin.<資料夾名稱>`；找不到就退回內建角色 |
 | `showBubble` | Bool | `true` | 角色模式要不要顯示對話泡泡 |
 | `characterTopRightX` / `characterTopRightY` | Double | 無 | 角色模式的面板**右上角**，與卡片的位置分開存。兩個缺一即視為沒有記錄 |
 | `opacity` | Double | `1.0` | 透明度，讀寫都夾限在 0.3–1.0 |
@@ -242,6 +306,7 @@ Floating/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.12.0 | 2026-09-22 | M9.5 皮膚擴充與交付 | 小精靈可以換成自己畫的：`~/Library/Application Support/FloatingAgenda/Skins/` 底下放 skin.json ＋ PNG，選單列「角色」下拉選單切換、「打開皮膚資料夾…」；不合格的皮膚不會出現在選單裡，`--dump` 的 Skins 區段會說明原因。M9 §7.1 十一條總驗收全部通過 |
 | 0.11.3 | 2026-09-22 | M9.4 泡泡與展開 | 小精靈左邊出現對話泡泡（逾期 → 今天到期 → 卡住的專案 → 專案待辦 → 總結，每則 8 秒、滑鼠停住暫停），選單列可關閉；點小精靈或泡泡展開成完整卡片，提醒區下方多一個唯讀的專案區（燈號、進度、更新時間、卡住原因、前 3 項待辦），點標題列的小精靈收回 |
 | 0.11.2 | 2026-09-22 | M9.3 像素小精靈 | 角色模式換成 16×16 的原創像素角色「小方」：四種心情（有逾期或卡住→橘、今天有事→藍、全部清空→綠、讀不到→灰）、4 fps 逐格動畫與眨眼、支援「減少動態效果」、面板隱藏與螢幕睡眠時停止動畫、3pt 門檻區分點擊與拖曳、右鍵選單。常駐 CPU 實測 0.4% |
 | 0.11.1 | 2026-09-22 | M9.2 顯示模式 | 「展開／收合」兩態改成**完整／收合／角色**三態：選單列新增顯示模式分段控制、舊 `panelCollapsed` 自動遷移成 `displayMode`、面板改為錨點感知（卡片錨左上角、角色錨右上角且寬高都隨內容、無視窗陰影），兩者的位置分開記憶；角色模式目前是 64×64 佔位色塊 |

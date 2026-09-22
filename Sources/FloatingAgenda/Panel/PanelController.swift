@@ -89,6 +89,8 @@ struct PanelRootView: View {
     let mode: DisplayMode
     let onToggleCollapsed: () -> Void
     let onSizeChange: (CGSize) -> Void
+    /// 要用哪個皮膚畫小精靈（M9 計畫 §4.6）
+    var skin: Skin = CharacterAnimation.builtinSkin
     /// 角色模式的動畫要不要跑。面板隱藏、螢幕睡眠或鎖定時傳 false（M9 計畫 §5.3）
     var isAnimating = true
     /// 角色模式是不是展開成卡片了。**暫時狀態，不存**（§4.5）
@@ -196,6 +198,7 @@ struct PanelRootView: View {
 
     private var characterSprite: some View {
         CharacterLiveView(mood: mood,
+                          skin: skin,
                           isAnimating: isAnimating,
                           onClick: onToggleExpanded,
                           menu: characterMenu)
@@ -233,6 +236,7 @@ struct PanelRootView: View {
                    background: .blur,
                    projectsState: visibleProjectsState,
                    characterMood: mood,
+                   characterSkin: skin,
                    onCollapseToCharacter: onToggleExpanded,
                    showsCollapseButton: false,
                    onOpenProject: { NSWorkspace.shared.open($0.fileURL) },
@@ -297,6 +301,51 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// 而且下次切換模式還會把這個位移過的位置存起來，等於小精靈會一路往上爬
     /// （codex 2026-09-22 指出）
     @ObservationIgnored private var anchorBeforeExpand: CGPoint?
+
+    /// 目前可用的皮膚（內建 ＋ 掃描到的外部皮膚）與被拒絕的清單。
+    /// 只在**啟動時**與**打開角色選單時**重新掃描，不監聽資料夾（§4.6）
+    @ObservationIgnored private var skinGeneration = 0
+    private(set) var availableSkins: [Skin] = []
+    private(set) var rejectedSkins: [SkinRejection] = []
+
+    /// 目前生效的皮膚。選的那個不見了就退回內建角色
+    var activeSkin: Skin {
+        availableSkins.first { $0.id == settings.characterSkinID }
+            ?? CharacterAnimation.builtinSkin
+    }
+
+    /// 重新掃描皮膚資料夾。啟動時與打開角色選單時呼叫
+    func reloadSkins() {
+        skinGeneration += 1
+        let generation = skinGeneration
+        let directory = SkinLoader.defaultDirectory()
+        // 掃描要讀 JSON、解 PNG、建 CGImage，皮膚多或磁碟慢時會拖住主執行緒，
+        // 連常駐動畫一起卡住（codex 2026-09-22 指出）。丟到背景，結果再切回來
+        Task.detached(priority: .utility) {
+            let result = SkinLoader.scan(directory: directory)
+            await MainActor.run { [weak self] in
+                guard let self, self.skinGeneration == generation else { return }
+                self.availableSkins = [CharacterAnimation.builtinSkin] + result.skins
+                self.rejectedSkins = result.rejected
+                self.rebuildRootView()
+            }
+        }
+    }
+
+    /// 選一個皮膚
+    func selectSkin(_ id: String) {
+        guard settings.characterSkinID != id else { return }
+        settings.characterSkinID = id
+        rebuildRootView()
+    }
+
+    /// 打開皮膚資料夾。**不存在就先建立**——這是整個專案唯一會建立目錄的地方，
+    /// 而且只在使用者主動按下這一項時才會發生（§8 明文允許）
+    func openSkinsFolder() {
+        let directory = SkinLoader.defaultDirectory()
+        SkinLoader.ensureDirectoryExists(directory)
+        NSWorkspace.shared.open(directory)
+    }
     /// 暫停動畫的原因。螢幕睡眠與工作階段切換是**各自獨立**的：
     /// 共用一個布林值的話，「切換使用者 → 螢幕睡眠 → 另一個使用者喚醒螢幕」
     /// 會讓原本那個工作階段的動畫在看不見的情況下恢復
@@ -325,6 +374,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.hasShadow = mode.wantsWindowShadow
         rebuildRootView()
         restoreFrame(size: startingSize(mode: mode, expanded: false))
+        availableSkins = [CharacterAnimation.builtinSkin]
+        reloadSkins()
         observeScreenChanges()
         observeEscape()
     }
@@ -411,6 +462,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                 // 舊內容的最後一次回報可能晚一步才到，不擋掉會被算到新狀態的快取上
                 self?.setContentSize(size, from: key)
             },
+            skin: activeSkin,
             isAnimating: isAnimationActive && panel.isVisible,
             isExpanded: isCharacterExpanded,
             onToggleExpanded: { [weak self] in self?.toggleCharacterExpanded() },

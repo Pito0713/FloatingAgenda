@@ -70,8 +70,30 @@ enum DevDump {
         projects.refresh()
         await waitForProjects(projects)
         printProjects(projects.state)
+        print("")
+
+        printSkins()
 
         return 0
+    }
+
+    /// `== Skins ==`（M9 計畫 §5.7）。
+    /// 被拒絕的皮膚也要列出來並說明原因，使用者才知道自己的皮膚哪裡不合格
+    private static func printSkins() {
+        print("== Skins ==")
+        let directory = SkinLoader.defaultDirectory()
+        print("  資料夾：~/Library/Application Support/FloatingAgenda/Skins")
+        let result = SkinLoader.scan(directory: directory)
+        print("  · \(BuiltinCharacter.id) | \(BuiltinCharacter.name) | 有效（內建，不可刪除）")
+        for skin in result.skins {
+            print("  · \(skin.id) | \(skin.name) | 有效（\(skin.fps) fps）")
+        }
+        for rejection in result.rejected {
+            print("  · skin.\(rejection.folder) | — | 無效：\(rejection.reason)")
+        }
+        if result.skins.isEmpty && result.rejected.isEmpty {
+            print("  （沒有外部皮膚）")
+        }
     }
 
     /// `== Projects ==`（M9 計畫 §5.7）

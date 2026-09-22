@@ -168,3 +168,44 @@ extension CharacterFixedFrameTests {
         }
     }
 }
+
+/// 外部皮膚宣告的 fps 要真的生效（codex 2026-09-22 指出原本全部強制 4 fps）
+@MainActor
+final class SkinFPSTests: XCTestCase {
+
+    private func skin(fps: Int) -> Skin {
+        Skin(id: "skin.test", name: "測試", frames: CharacterAnimation.builtinSkin.frames,
+             blink: nil, fps: fps)
+    }
+
+    func testIntervalFollowsTheDeclaredFPS() {
+        XCTAssertEqual(CharacterAnimation.interval(for: skin(fps: 4)), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(CharacterAnimation.interval(for: skin(fps: 1)), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(CharacterAnimation.interval(for: skin(fps: 12)),
+                       1.0 / 12, accuracy: 0.0001)
+    }
+
+    /// 不同 fps 的皮膚換格速度要真的不一樣
+    func testDifferentFPSAdvancesAtDifferentRates() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        let later = start.addingTimeInterval(1)
+        let fast = CharacterAnimation.tick(at: later, interval: CharacterAnimation.interval(for: skin(fps: 12)))
+            - CharacterAnimation.tick(at: start, interval: CharacterAnimation.interval(for: skin(fps: 12)))
+        let slow = CharacterAnimation.tick(at: later, interval: CharacterAnimation.interval(for: skin(fps: 1)))
+            - CharacterAnimation.tick(at: start, interval: CharacterAnimation.interval(for: skin(fps: 1)))
+        XCTAssertEqual(fast, 12, "12 fps 一秒該前進 12 格")
+        XCTAssertEqual(slow, 1, "1 fps 一秒該前進 1 格")
+    }
+
+    /// 超出 1…12 的值要被夾限，不能讓 interval 變成 0 或負數把計時器搞爆
+    func testOutOfRangeFPSIsClamped() {
+        XCTAssertEqual(CharacterAnimation.interval(for: skin(fps: 0)), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(CharacterAnimation.interval(for: skin(fps: -3)), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(CharacterAnimation.interval(for: skin(fps: 999)),
+                       1.0 / 12, accuracy: 0.0001)
+    }
+
+    func testZeroIntervalDoesNotCrash() {
+        XCTAssertNoThrow(_ = CharacterAnimation.tick(at: Date(), interval: 0))
+    }
+}

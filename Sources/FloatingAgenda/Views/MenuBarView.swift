@@ -51,6 +51,8 @@ struct MenuBarView: View {
                 ))
                 .toggleStyle(.checkbox)
                 .controlSize(.small)
+
+                characterSkinRow
             }
 
             opacityRow
@@ -98,6 +100,36 @@ struct MenuBarView: View {
         .pickerStyle(.segmented)
         .controlSize(.small)
         .labelsHidden()
+    }
+
+    /// 角色皮膚下拉選單（M9 計畫 §4.6）。
+    ///
+    /// 皮膚只在**打開這個選單時**重新掃描，不監聽資料夾——
+    /// 使用者放進新皮膚後只要關掉再打開選單就會看到
+    private var characterSkinRow: some View {
+        HStack(spacing: 6) {
+            Text("角色")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Picker("", selection: Binding(
+                get: { delegate?.panelController?.activeSkin.id ?? BuiltinCharacter.id },
+                set: { newValue in
+                    delegate?.panelController?.selectSkin(newValue)
+                    revision += 1
+                }
+            )) {
+                ForEach(delegate?.panelController?.availableSkins ?? []) { skin in
+                    Text(skin.name).tag(skin.id)
+                }
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            Button("打開皮膚資料夾…") {
+                delegate?.panelController?.openSkinsFolder()
+            }
+            .controlSize(.small)
+        }
+        .onAppear { delegate?.panelController?.reloadSkins() }
     }
 
     private var filterSections: some View {

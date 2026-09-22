@@ -50,6 +50,7 @@ final class AppSettings {
         static let characterTopRightX = "characterTopRightX"
         static let characterTopRightY = "characterTopRightY"
         static let showBubble = "showBubble"
+        static let characterSkinID = "characterSkinID"
     }
 
     private let defaults: any SettingsStore
@@ -125,6 +126,14 @@ final class AppSettings {
     var showBubble: Bool {
         get { defaults.bool(forKey: Key.showBubble) }
         set { defaults.set(newValue, forKey: Key.showBubble) }
+    }
+
+    /// 使用者選的皮膚（M9 計畫 §4.6）。
+    /// 啟動時找不到那個皮膚就退回內建角色——這個退回由 `PanelController` 處理，
+    /// 設定本身只忠實保存使用者選過什麼，不要幫他改掉
+    var characterSkinID: String {
+        get { (defaults.object(forKey: Key.characterSkinID) as? String) ?? BuiltinCharacter.id }
+        set { defaults.set(newValue, forKey: Key.characterSkinID) }
     }
 
     /// 角色模式的面板**右上角**。

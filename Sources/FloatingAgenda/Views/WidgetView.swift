@@ -26,6 +26,8 @@ struct WidgetView: View {
     var projectsState: SectionState<ProjectItem>?
     /// 角色模式展開時，標題列最左邊放一個 24pt 的小精靈，點它收回（§4.5）
     var characterMood: Mood?
+    /// 標題列那隻 24pt 小精靈要用哪個皮膚（M9 計畫 §4.6）
+    var characterSkin: Skin = CharacterAnimation.builtinSkin
     var onCollapseToCharacter: () -> Void = {}
     /// 右上角的收合箭頭要不要出現。
     /// 角色模式展開時傳 false——那裡的收回入口是標題列的小精靈與 Esc，
@@ -178,7 +180,7 @@ struct WidgetView: View {
         if let characterMood {
             HStack(alignment: .center, spacing: 10) {
                 Button(action: onCollapseToCharacter) {
-                    CharacterView(mood: characterMood)
+                    CharacterView(mood: characterMood, skin: characterSkin)
                         .scaleEffect(24.0 / PanelMetrics.characterSize)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())

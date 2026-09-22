@@ -34,6 +34,14 @@ final class CharacterHostView: NSView {
     var mood: Mood = .happy {
         didSet { if mood != oldValue { needsDisplay = true } }
     }
+    /// 要用哪個皮膚畫（M9 計畫 §4.6）
+    var skin: Skin = CharacterAnimation.builtinSkin {
+        didSet {
+            guard skin != oldValue else { return }
+            needsDisplay = true
+            updateTimer()   // 每個皮膚的 fps 可能不同
+        }
+    }
     /// 面板隱藏、螢幕睡眠或鎖定時設成 false，計時器就會停掉（§5.3）
     var isAnimating = true {
         didSet { if isAnimating != oldValue { updateTimer() } }
@@ -72,17 +80,18 @@ final class CharacterHostView: NSView {
         // 沒有視窗（還沒掛上或已經移除）就不要跑計時器
         guard isAnimating, window != nil else { return }
 
-        currentTick = CharacterAnimation.tick(at: Date())
-        let timer = Timer(timeInterval: CharacterAnimation.frameInterval,
-                          repeats: true) { [weak self] _ in
+        let interval = CharacterAnimation.interval(for: skin)
+        currentTick = CharacterAnimation.tick(at: Date(), interval: interval)
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.currentTick = CharacterAnimation.tick(at: Date())
+                self.currentTick = CharacterAnimation.tick(
+                    at: Date(), interval: CharacterAnimation.interval(for: self.skin))
                 self.needsDisplay = true
             }
         }
         // 容忍度讓系統可以把喚醒合併到別的計時器上，省電
-        timer.tolerance = CharacterAnimation.frameInterval / 4
+        timer.tolerance = interval / 4
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         needsDisplay = true
@@ -101,10 +110,9 @@ final class CharacterHostView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
         let tick = isAnimating ? currentTick : 0
-        let rows = isAnimating
-            ? CharacterAnimation.rows(mood: mood, tick: tick)
-            : CharacterAnimation.animationFrame(mood: mood, index: 0)
-        let image = CharacterAnimation.image(rows: rows, mood: mood)
+        guard let image = CharacterAnimation.image(skin: skin, mood: mood, tick: tick) else {
+            return   // 皮膚壞掉也不要畫出奇怪的東西
+        }
 
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let offset = isAnimating
@@ -166,6 +174,7 @@ final class CharacterHostView: NSView {
 /// 把 `CharacterHostView` 接進 SwiftUI。
 struct CharacterLiveView: NSViewRepresentable {
     let mood: Mood
+    var skin: Skin = CharacterAnimation.builtinSkin
     var isAnimating = true
     var onClick: () -> Void = {}
     var menu: () -> NSMenu? = { nil }
@@ -182,6 +191,7 @@ struct CharacterLiveView: NSViewRepresentable {
 
     private func apply(to view: CharacterHostView) {
         view.mood = mood
+        view.skin = skin
         view.isAnimating = isAnimating
         view.onClick = onClick
         view.menuProvider = menu
