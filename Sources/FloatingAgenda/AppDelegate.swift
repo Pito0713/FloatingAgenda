@@ -12,5 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 權限請求與第一次讀取；之後由 AgendaStore 自己監聽變更
         Task { await AgendaStore.shared.start() }
+        // 專案進度：唯讀掃描 ~/.agent-sessions，60 秒重讀（M9 計畫 §5.2）
+        ProjectStore.shared.start()
     }
 }

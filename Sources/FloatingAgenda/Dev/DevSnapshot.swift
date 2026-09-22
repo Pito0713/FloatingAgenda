@@ -134,9 +134,86 @@ enum DevSnapshot {
             let menuPath = "\(prefix)-menu-\(item.suffix).png"
             guard writePNG(menuCG, scale: 2, to: menuPath) else { return 1 }
             print("✅ \(menuPath)  \(menuCG.width)×\(menuCG.height)px")
+
+            // 角色模式：四種心情各一張（M9 計畫 §5.7）。
+            // 固定在第 0 格，輸出才可重現
+            for mood in Mood.allCases {
+                let character = CharacterView(mood: mood)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .environment(\.colorScheme, item.scheme)
+                guard let image = render(character, appearance: appearance) else {
+                    fail("ImageRenderer 產不出 \(mood) 的角色圖")
+                    return 1
+                }
+                let path = "\(prefix)-char-\(mood.rawValue)-\(item.suffix).png"
+                guard writePNG(image, scale: 2, to: path) else { return 1 }
+                print("✅ \(path)  \(image.width)×\(image.height)px")
+            }
         }
 
+        // 所有動畫格排成一張放大 8 倍的圖，方便逐格檢查像素（§5.7）
+        guard let sheet = renderSpriteSheet() else {
+            fail("產不出 sprite sheet")
+            return 1
+        }
+        let sheetPath = "\(prefix)-char-sprites.png"
+        guard writePNG(sheet, scale: 1, to: sheetPath) else { return 1 }
+        print("✅ \(sheetPath)  \(sheet.width)×\(sheet.height)px")
+
         return 0
+    }
+
+    private static func render(_ content: some View, appearance: NSAppearance) -> CGImage? {
+        var image: CGImage?
+        appearance.performAsCurrentDrawingAppearance {
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 2
+            image = renderer.cgImage
+        }
+        return image
+    }
+
+    /// 每一列是一種心情，依序是各動畫格與眨眼格，整張放大 8 倍。
+    /// 直接用 CoreGraphics 拼，不走 ImageRenderer——像素放大要最近鄰，
+    /// 而且這張圖是給人逐格檢查用的，不需要跟著深淺色模式變
+    private static func renderSpriteSheet() -> CGImage? {
+        let zoom = 8
+        let cell = PixelSprite.side * zoom
+        let gap = zoom
+        let columns = Mood.allCases.map { mood -> Int in
+            BuiltinCharacter.frames(for: mood).count
+                + (BuiltinCharacter.blinkFrame(for: mood) == nil ? 0 : 1)
+        }.max() ?? 1
+        let width = columns * cell + (columns + 1) * gap
+        let height = Mood.allCases.count * cell + (Mood.allCases.count + 1) * gap
+
+        guard let context = CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+
+        // 中灰底：這張圖是給人逐格檢查像素用的，深色的外框與淺色的眼白
+        // 都必須看得見。用深色底會讓外框色的部位整個消失
+        context.setFillColor(NSColor(srgbRed: 0.45, green: 0.45, blue: 0.48, alpha: 1).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.interpolationQuality = .none
+
+        for (row, mood) in Mood.allCases.enumerated() {
+            var frames = BuiltinCharacter.frames(for: mood)
+            if let blink = BuiltinCharacter.blinkFrame(for: mood) { frames.append(blink) }
+            let palette = PixelSprite.Palette(body: mood.bodyColor)
+
+            for (column, rows) in frames.enumerated() {
+                guard let grid = try? PixelSprite.Grid(rows),
+                      let image = PixelSprite.image(grid, palette: palette) else { continue }
+                // CGContext 原點在左下，第 0 列要畫在最上面
+                let y = height - gap - (row + 1) * cell - row * gap
+                let x = gap + column * (cell + gap)
+                context.draw(image, in: CGRect(x: x, y: y, width: cell, height: cell))
+            }
+        }
+        return context.makeImage()
     }
 
     private static func writePNG(_ cgImage: CGImage, scale: CGFloat, to path: String) -> Bool {

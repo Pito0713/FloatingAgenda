@@ -86,7 +86,12 @@ struct PanelRootView: View {
     let mode: DisplayMode
     let onToggleCollapsed: () -> Void
     let onSizeChange: (CGSize) -> Void
+    /// 角色模式的動畫要不要跑。面板隱藏、螢幕睡眠或鎖定時傳 false（M9 計畫 §5.3）
+    var isAnimating = true
+    var onCharacterClick: () -> Void = {}
+    var characterMenu: () -> NSMenu? = { nil }
     private let store = AgendaStore.shared
+    private let projects = ProjectStore.shared
 
     var body: some View {
         content
@@ -103,8 +108,21 @@ struct PanelRootView: View {
         case .full, .collapsed:
             widget
         case .character:
-            CharacterPlaceholderView()
+            character
         }
+    }
+
+    /// 小精靈疊在互動層上面：互動層負責吃點擊與拖曳，小精靈自己 `allowsHitTesting(false)`。
+    /// 面板大小就等於這一塊的大小，旁邊沒有多餘的透明區域擋住桌面（§5.4）
+    private var character: some View {
+        CharacterLiveView(mood: Mood.decide(reminders: store.remindersState,
+                                            projects: projects.state,
+                                            now: Date()),
+                          isAnimating: isAnimating,
+                          onClick: onCharacterClick,
+                          menu: characterMenu)
+            .frame(width: PanelMetrics.characterSize + PanelMetrics.characterPadding * 2,
+                   height: PanelMetrics.characterSize + PanelMetrics.characterPadding * 2)
     }
 
     private var widget: some View {
@@ -142,6 +160,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// 程式自己調整 frame 時不要把位置寫回設定（避免尺寸同步被當成使用者拖曳）
     @ObservationIgnored private var isAdjustingFrame = false
     @ObservationIgnored private var screenObserver: NSObjectProtocol?
+    @ObservationIgnored private var powerObservers: [NSObjectProtocol] = []
     /// 每個模式上次量到的真實內容尺寸。
     ///
     /// 切換模式時拿它當初始尺寸，**不要**先擺一個佔位尺寸再指望
@@ -150,6 +169,13 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// 若連續切換讓尺寸繞回原值，回報就不會再來一次，面板會卡在佔位尺寸上
     /// （codex 2026-09-22 指出）。
     @ObservationIgnored private var lastKnownSize: [DisplayMode: NSSize] = [:]
+    /// 暫停動畫的原因。螢幕睡眠與工作階段切換是**各自獨立**的：
+    /// 共用一個布林值的話，「切換使用者 → 螢幕睡眠 → 另一個使用者喚醒螢幕」
+    /// 會讓原本那個工作階段的動畫在看不見的情況下恢復
+    /// （codex 2026-09-22 指出）。要全部解除才恢復
+    @ObservationIgnored private var screensAsleep = false
+    @ObservationIgnored private var sessionInactive = false
+    private var isAnimationActive: Bool { !screensAsleep && !sessionInactive }
 
     /// settings 預設值不能直接寫 `.shared`：預設引數在 nonisolated 情境求值，
     /// Swift 6 語言模式會直接變成錯誤
@@ -178,6 +204,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }
+        // 電源與工作階段的通知註冊在 NSWorkspace 自己的 center，
+        // 拿去 NotificationCenter.default 移除是無效操作（M2 踩過同一個坑）
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        powerObservers.forEach { workspaceCenter.removeObserver($0) }
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -192,10 +222,12 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// 用 orderFrontRegardless：面板不搶焦點，也不能讓 App 被啟動起來
     func show() {
         panel.orderFrontRegardless()
+        rebuildRootView()   // 隱藏期間動畫是停的，顯示回來要重新接上
     }
 
     func hide() {
         panel.orderOut(nil)
+        rebuildRootView()   // 看不見就不要再畫了
     }
 
     func setVisible(_ visible: Bool) {
@@ -242,7 +274,51 @@ final class PanelController: NSObject, NSWindowDelegate {
             },
             onSizeChange: { [weak self] size in
                 self?.setContentSize(size)
-            })
+            },
+            isAnimating: isAnimationActive && panel.isVisible,
+            onCharacterClick: {
+                // 點小精靈展開成卡片是 M9.4 的範圍。
+                // M9.3 先不接行為——做一半的展開比沒有展開更讓人困惑
+            },
+            characterMenu: { [weak self] in self?.makeCharacterMenu() })
+    }
+
+    /// 右鍵選單（M9 計畫 §4.2）。
+    /// 「展開」是 M9.4 才有的功能，這一版先不放，不放比放一個按了沒反應的好
+    private func makeCharacterMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "重新整理", action: #selector(refreshFromMenu), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "切換成完整模式",
+                     action: #selector(switchToFullFromMenu), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "結束 FloatingAgenda",
+                     action: #selector(quitFromMenu), keyEquivalent: "").target = self
+        return menu
+    }
+
+    @objc private func refreshFromMenu() {
+        AgendaStore.shared.refresh()
+        ProjectStore.shared.refresh()
+    }
+
+    @objc private func switchToFullFromMenu() {
+        setDisplayMode(.full)
+    }
+
+    @objc private func quitFromMenu() {
+        NSApplication.shared.terminate(nil)
+    }
+
+    /// 螢幕睡眠／鎖定時停掉動畫，醒來再恢復（§5.3）。
+    /// 兩個原因分開記，全部解除才恢復
+    private func setPaused(screensAsleep asleep: Bool? = nil,
+                           sessionInactive inactive: Bool? = nil) {
+        let before = isAnimationActive
+        if let asleep { screensAsleep = asleep }
+        if let inactive { sessionInactive = inactive }
+        guard isAnimationActive != before else { return }
+        rebuildRootView()
     }
 
     /// 切換到某個模式時要用的起始尺寸：優先用上次量到的真實值。
@@ -300,6 +376,30 @@ final class PanelController: NSObject, NSWindowDelegate {
             MainActor.assumeIsolated {
                 self?.recoverIfOffscreen()
             }
+        }
+        observePowerAndSession()
+    }
+
+    /// 螢幕睡著或使用者切換帳號／鎖定時，常駐動畫沒有理由繼續跑
+    private func observePowerAndSession() {
+        let center = NSWorkspace.shared.notificationCenter
+        let events: [(NSNotification.Name, Bool, Bool)] = [
+            (NSWorkspace.screensDidSleepNotification, true, true),
+            (NSWorkspace.screensDidWakeNotification, true, false),
+            (NSWorkspace.sessionDidResignActiveNotification, false, true),
+            (NSWorkspace.sessionDidBecomeActiveNotification, false, false),
+        ]
+        for (name, isScreens, paused) in events {
+            powerObservers.append(center.addObserver(forName: name, object: nil, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated {
+                    if isScreens {
+                        self?.setPaused(screensAsleep: paused)
+                    } else {
+                        self?.setPaused(sessionInactive: paused)
+                    }
+                }
+            })
         }
     }
 
