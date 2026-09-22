@@ -149,6 +149,45 @@ enum DevSnapshot {
                 guard writePNG(image, scale: 2, to: path) else { return 1 }
                 print("✅ \(path)  \(image.width)×\(image.height)px")
             }
+
+            // 小精靈加一則兩行的泡泡（§5.7）
+            let bubble = HStack(alignment: .center, spacing: 6) {
+                BubbleView(text: "⏰ 逾期：把這一則寫長一點，讓泡泡換到第二行")
+                CharacterView(mood: .worried)
+            }
+            .fixedSize()
+            .padding(8)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, item.scheme)
+            guard let bubbleImage = render(bubble, appearance: appearance) else {
+                fail("ImageRenderer 產不出泡泡圖")
+                return 1
+            }
+            let bubblePath = "\(prefix)-char-bubble-\(item.suffix).png"
+            guard writePNG(bubbleImage, scale: 2, to: bubblePath) else { return 1 }
+            print("✅ \(bubblePath)  \(bubbleImage.width)×\(bubbleImage.height)px")
+
+            // 展開的卡片：完整卡片 ＋ 專案區（§4.5、§5.7）
+            let mockProjects = MockData.projects()
+            let expanded = WidgetView(
+                eventsState: .loaded(items: events, total: events.count),
+                remindersState: .loaded(items: reminders, total: reminders.count),
+                pendingReminderIDs: MockData.pendingReminderIDs,
+                background: .opaque,
+                now: MockData.referenceDate(),
+                projectsState: .loaded(items: mockProjects, total: mockProjects.count),
+                characterMood: .worried,
+                projectsScrollable: false)
+                .frame(width: PanelMetrics.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .environment(\.colorScheme, item.scheme)
+            guard let expandedImage = render(expanded, appearance: appearance) else {
+                fail("ImageRenderer 產不出展開的卡片")
+                return 1
+            }
+            let expandedPath = "\(prefix)-char-expanded-\(item.suffix).png"
+            guard writePNG(expandedImage, scale: 2, to: expandedPath) else { return 1 }
+            print("✅ \(expandedPath)  \(expandedImage.width)×\(expandedImage.height)px")
         }
 
         // 所有動畫格排成一張放大 8 倍的圖，方便逐格檢查像素（§5.7）

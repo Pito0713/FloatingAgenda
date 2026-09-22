@@ -27,6 +27,9 @@ final class InMemorySettingsStore: SettingsStore {
         storage[defaultName]
     }
 
+    /// 目前被明確寫入的所有 key。用來斷言「某個操作不該寫入任何設定」
+    var allPersistedKeys: Set<String> { Set(storage.keys) }
+
     func set(_ value: Any?, forKey defaultName: String) {
         if let value {
             storage[defaultName] = value

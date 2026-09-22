@@ -124,12 +124,28 @@ final class PanelAnchorTests: XCTestCase {
         XCTAssertFalse(PanelController.isUsable(frame: frame))
     }
 
-    /// 只露出一小角不算可用：使用者看不到也抓不到
+    /// 只露出一小角不算可用：使用者看不到也抓不到。
+    ///
+    /// ⚠️ 位置要挑**最右邊那個螢幕**的右緣，不能用 `screens.first`：
+    /// 多螢幕時 `screens.first` 的右邊可能還有另一個螢幕，
+    /// 那一小角其實整片落在鄰居螢幕上，判定為可用是正確的
+    /// （使用者 2026-09-22 接上第二個螢幕後這條就紅了，程式沒錯，是測試的假設錯）
     func testPanelWithOnlyASliverOnScreenIsNotUsable() throws {
-        let screen = try XCTUnwrap(NSScreen.screens.first).visibleFrame
-        // 只有最右邊 10pt 在畫面內
-        let frame = NSRect(x: screen.maxX - 10, y: screen.midY, width: 320, height: 480)
-        XCTAssertFalse(PanelController.isUsable(frame: frame))
+        let rightmost = try XCTUnwrap(
+            NSScreen.screens.max { $0.visibleFrame.maxX < $1.visibleFrame.maxX }).visibleFrame
+        let frame = NSRect(x: rightmost.maxX - 10, y: rightmost.midY, width: 320, height: 480)
+        XCTAssertFalse(PanelController.isUsable(frame: frame),
+                       "只有 10pt 在畫面內不該算可用")
+    }
+
+    /// 反過來：橫跨兩個相鄰螢幕的面板**是**可用的，不該被判成畫面外
+    func testPanelSpanningTwoAdjacentScreensIsUsable() throws {
+        let screens = NSScreen.screens.map(\.visibleFrame).sorted { $0.minX < $1.minX }
+        try XCTSkipUnless(screens.count >= 2, "需要兩個螢幕才測得到")
+        let left = screens[0]
+        // 跨在兩個螢幕的交界上
+        let frame = NSRect(x: left.maxX - 160, y: left.midY, width: 320, height: 200)
+        XCTAssertTrue(PanelController.isUsable(frame: frame))
     }
 
     // MARK: - 預設位置

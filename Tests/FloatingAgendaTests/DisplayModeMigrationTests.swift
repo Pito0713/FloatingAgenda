@@ -144,3 +144,28 @@ final class DisplayModeMigrationTests: XCTestCase {
                        "清掉角色位置不該影響卡片位置")
     }
 }
+
+/// 「顯示對話泡泡」開關（M9 計畫 §5.5）
+@MainActor
+final class ShowBubbleSettingTests: XCTestCase {
+
+    /// 預設要是開的。用 register 提供預設值，使用者沒設過也會拿到 true
+    func testDefaultsToOn() {
+        XCTAssertTrue(Fixture.settings().showBubble)
+    }
+
+    func testRoundTrips() {
+        let settings = Fixture.settings()
+        settings.showBubble = false
+        XCTAssertFalse(settings.showBubble)
+        settings.showBubble = true
+        XCTAssertTrue(settings.showBubble)
+    }
+
+    /// 關掉之後要真的存進持久層，重開 App 還是關的
+    func testTurningOffIsPersisted() {
+        let (settings, store) = Fixture.settingsWithStore()
+        settings.showBubble = false
+        XCTAssertEqual(store.persistedObject(forKey: "showBubble") as? Bool, false)
+    }
+}

@@ -126,6 +126,30 @@ enum MockData {
         ]
     }
 
+    /// 展開卡片的專案區用（M9 計畫 §5.7 指定：3 個專案，其中一個卡住、一個超過 3 項待辦）
+    static func projects() -> [ProjectItem] {
+        let base = referenceDate()
+        return [
+            ProjectItem(id: "專案 A", name: "專案 A", status: .red, statusText: "🔴 卡住",
+                        updated: base.addingTimeInterval(-3600),
+                        done: 3, total: 8,
+                        openTodos: ["等待外部回覆", "補上設定說明"],
+                        blocker: "等對方開通權限，預計下週",
+                        fileURL: URL(fileURLWithPath: "/tmp/專案 A/latest.md")),
+            ProjectItem(id: "專案 B", name: "專案 B", status: .yellow, statusText: "🟡 進行中",
+                        updated: base.addingTimeInterval(-86_400),
+                        done: 5, total: 9,
+                        openTodos: ["第一件待辦", "第二件待辦", "第三件待辦",
+                                    "第四件待辦", "第五件待辦"],
+                        blocker: nil,
+                        fileURL: URL(fileURLWithPath: "/tmp/專案 B/latest.md")),
+            ProjectItem(id: "專案 C", name: "專案 C", status: .green, statusText: "🟢 順暢",
+                        updated: base.addingTimeInterval(-172_800),
+                        done: 6, total: 6, openTodos: [], blocker: nil,
+                        fileURL: URL(fileURLWithPath: "/tmp/專案 C/latest.md")),
+        ]
+    }
+
     static func reminderLists() -> [CalendarInfo] {
         [
             CalendarInfo(id: "r1", title: "每日清單", sourceTitle: "iCloud",

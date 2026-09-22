@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EventKit
 import SwiftUI
 
@@ -21,6 +22,8 @@ enum PanelMetrics {
     static let characterSize: CGFloat = 64
     /// 角色四周的留白。面板大小＝看得到的內容大小，這段邊距留給角色自己畫的陰影
     static let characterPadding: CGFloat = 8
+    /// 角色模式展開後整張卡片的高度上限（M9 計畫 §4.5）
+    static let expandedMaxHeight: CGFloat = 620
 }
 
 /// 面板用哪個角定位。
@@ -88,10 +91,17 @@ struct PanelRootView: View {
     let onSizeChange: (CGSize) -> Void
     /// 角色模式的動畫要不要跑。面板隱藏、螢幕睡眠或鎖定時傳 false（M9 計畫 §5.3）
     var isAnimating = true
-    var onCharacterClick: () -> Void = {}
+    /// 角色模式是不是展開成卡片了。**暫時狀態，不存**（§4.5）
+    var isExpanded = false
+    var onToggleExpanded: () -> Void = {}
     var characterMenu: () -> NSMenu? = { nil }
     private let store = AgendaStore.shared
     private let projects = ProjectStore.shared
+    private let settings = AppSettings.shared
+
+    /// 輪播用。滑鼠停在泡泡上時暫停（§4.2）
+    @State private var rotation = BubbleRotation()
+    @State private var isHoveringBubble = false
 
     var body: some View {
         content
@@ -108,22 +118,29 @@ struct PanelRootView: View {
         case .full, .collapsed:
             widget
         case .character:
-            character
+            if isExpanded { expandedCard } else { idleCharacter }
         }
     }
 
-    /// 小精靈疊在互動層上面：互動層負責吃點擊與拖曳，小精靈自己 `allowsHitTesting(false)`。
-    /// 面板大小就等於這一塊的大小，旁邊沒有多餘的透明區域擋住桌面（§5.4）
-    private var character: some View {
-        CharacterLiveView(mood: Mood.decide(reminders: store.remindersState,
-                                            projects: projects.state,
-                                            now: Date()),
-                          isAnimating: isAnimating,
-                          onClick: onCharacterClick,
-                          menu: characterMenu)
-            .frame(width: PanelMetrics.characterSize + PanelMetrics.characterPadding * 2,
-                   height: PanelMetrics.characterSize + PanelMetrics.characterPadding * 2)
+    /// 專案區只在**角色模式展開時**出現。完整與收合模式一律不顯示（M9 計畫 §4.5）。
+    ///
+    /// 抽成 static 純函式並讓兩個分支共用同一個來源，是為了讓這條規則可以被測試釘住——
+    /// 分散在兩個分支裡寫的話，「完整模式不小心也傳了專案區」這種錯誤
+    /// 單元測試與 snapshot 都抓不到（`--snapshot` 直接渲染 `WidgetView`，
+    /// 根本不經過 `PanelRootView`）
+    static func showsProjects(mode: DisplayMode, expanded: Bool) -> Bool {
+        mode == .character && expanded
     }
+
+    private var visibleProjectsState: SectionState<ProjectItem>? {
+        Self.showsProjects(mode: mode, expanded: isExpanded) ? projects.state : nil
+    }
+
+    private var mood: Mood {
+        Mood.decide(reminders: store.remindersState, projects: projects.state, now: Date())
+    }
+
+    // MARK: - 完整／收合模式（M9 之前就有的畫面，一個字都不能動）
 
     private var widget: some View {
         WidgetView(eventsState: store.eventsState,
@@ -133,12 +150,100 @@ struct PanelRootView: View {
                    background: .blur,
                    isCollapsed: mode == .collapsed,
                    onToggleCollapsed: onToggleCollapsed,
+                   projectsState: visibleProjectsState,
                    onOpenEvent: { store.openInCalendar($0) },
                    onToggleReminder: { store.toggleCompletion($0) },
                    onOpenReminder: { store.openInReminders($0) },
                    onOpenCalendarSettings: { store.openPrivacySettings(for: .event) },
                    onOpenReminderSettings: { store.openPrivacySettings(for: .reminder) })
             .frame(width: PanelMetrics.width)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - 角色模式：待機
+
+    /// 泡泡在小精靈**左邊**、垂直置中（§4.2）。
+    /// 沒有泡泡時，面板大小就等於小精靈的大小——點擊穿透靠的就是這件事（§5.4）
+    private var idleCharacter: some View {
+        HStack(alignment: .center, spacing: 6) {
+            if settings.showBubble, let line = rotation.current {
+                BubbleView(text: line.text) { isHoveringBubble = $0 }
+                    // 點泡泡的效果跟點小精靈一樣（§4.2）
+                    .onTapGesture(perform: onToggleExpanded)
+                    .transition(.opacity)
+                    .id(line.id)
+            }
+            characterSprite
+        }
+        // **一定要 fixedSize**：沒有它，這一塊會撐滿被提議的寬度
+        // （例如剛從展開的卡片收回來時是 320pt），面板就會比看得到的內容大一圈，
+        // 旁邊多出一片看不見卻擋住桌面的區域——那正是 §5.4 的點擊穿透要避免的
+        .fixedSize()
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rotation.current?.id)
+        .onAppear { rebuildLines() }
+        .onChange(of: store.remindersState) { rebuildLines() }
+        .onChange(of: projects.state) { rebuildLines() }
+        // 每則顯示 8 秒。滑鼠停在泡泡上時暫停（§4.2、§4.4）。
+        //
+        // 計時器只在**真的看得到泡泡**時才建立：關掉「顯示對話泡泡」、
+        // 面板隱藏、螢幕睡眠時都不該有東西在跳（codex 2026-09-22 指出
+        // 原本的訂閱不受這些條件控制）
+        .onReceive(bubbleTimer) { _ in
+            guard !isHoveringBubble else { return }
+            rotation.advance()
+        }
+    }
+
+    private var characterSprite: some View {
+        CharacterLiveView(mood: mood,
+                          isAnimating: isAnimating,
+                          onClick: onToggleExpanded,
+                          menu: characterMenu)
+            .frame(width: PanelMetrics.characterSize + PanelMetrics.characterPadding * 2,
+                   height: PanelMetrics.characterSize + PanelMetrics.characterPadding * 2)
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// 看不到泡泡時給一個永遠不發訊號的 publisher，等於沒有計時器
+    private var bubbleTimer: AnyPublisher<Date, Never> {
+        guard settings.showBubble, isAnimating else {
+            return Empty<Date, Never>(completeImmediately: false).eraseToAnyPublisher()
+        }
+        return Timer.publish(every: BubbleRotation.interval, on: .main, in: .common)
+            .autoconnect()
+            .eraseToAnyPublisher()
+    }
+
+    private func rebuildLines() {
+        rotation.update(lines: BubbleComposer.lines(reminders: store.remindersState,
+                                                    projects: projects.state,
+                                                    now: Date()))
+    }
+
+    // MARK: - 角色模式：展開
+
+    /// 展開的卡片 ＝ 完整卡片 ＋ 專案區（§4.5）。
+    /// 所有既有互動都跟完整模式一樣，只是多了標題列的小精靈與下方的專案區
+    private var expandedCard: some View {
+        WidgetView(eventsState: store.eventsState,
+                   remindersState: store.remindersState,
+                   pendingReminderIDs: store.pendingCompletion,
+                   reminderError: store.completionError,
+                   background: .blur,
+                   projectsState: visibleProjectsState,
+                   characterMood: mood,
+                   onCollapseToCharacter: onToggleExpanded,
+                   showsCollapseButton: false,
+                   onOpenProject: { NSWorkspace.shared.open($0.fileURL) },
+                   onOpenEvent: { store.openInCalendar($0) },
+                   onToggleReminder: { store.toggleCompletion($0) },
+                   onOpenReminder: { store.openInReminders($0) },
+                   onOpenCalendarSettings: { store.openPrivacySettings(for: .event) },
+                   onOpenReminderSettings: { store.openPrivacySettings(for: .reminder) })
+            .frame(width: PanelMetrics.width)
+            // 高度上限由 WidgetView 內部的專案區自己吸收（§4.5），
+            // 這裡照常取理想高度
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -161,6 +266,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     @ObservationIgnored private var isAdjustingFrame = false
     @ObservationIgnored private var screenObserver: NSObjectProtocol?
     @ObservationIgnored private var powerObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var escapeMonitor: Any?
     /// 每個模式上次量到的真實內容尺寸。
     ///
     /// 切換模式時拿它當初始尺寸，**不要**先擺一個佔位尺寸再指望
@@ -168,7 +274,29 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// 而重新指派同型別的 rootView 會保留 SwiftUI 的視圖識別。
     /// 若連續切換讓尺寸繞回原值，回報就不會再來一次，面板會卡在佔位尺寸上
     /// （codex 2026-09-22 指出）。
-    @ObservationIgnored private var lastKnownSize: [DisplayMode: NSSize] = [:]
+    @ObservationIgnored private var lastKnownSize: [SizeKey: NSSize] = [:]
+
+    /// 角色模式有兩種尺寸（小精靈與展開的卡片），所以快取的 key 要同時帶上展開狀態
+    private struct SizeKey: Hashable {
+        let mode: DisplayMode
+        let expanded: Bool
+    }
+
+    private var currentSizeKey: SizeKey {
+        SizeKey(mode: displayMode, expanded: isCharacterExpanded)
+    }
+    /// 角色模式是不是展開成卡片了。
+    ///
+    /// **暫時狀態，刻意不存**（M9 計畫 §4.5）：重開 App 一律從小精靈開始。
+    /// `@Observable` 追蹤它，選單列與右鍵選單才會跟著顯示「展開」或「收回」
+    private(set) var isCharacterExpanded = false
+    /// 展開前小精靈的右上角。
+    ///
+    /// 展開時若卡片會超出螢幕下緣，`constrained` 會把它往上推——
+    /// 收回時若直接用「被推上去之後」的右上角，小精靈就回不到原位，
+    /// 而且下次切換模式還會把這個位移過的位置存起來，等於小精靈會一路往上爬
+    /// （codex 2026-09-22 指出）
+    @ObservationIgnored private var anchorBeforeExpand: CGPoint?
     /// 暫停動畫的原因。螢幕睡眠與工作階段切換是**各自獨立**的：
     /// 共用一個布林值的話，「切換使用者 → 螢幕睡眠 → 另一個使用者喚醒螢幕」
     /// 會讓原本那個工作階段的動畫在看不見的情況下恢復
@@ -196,8 +324,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.alphaValue = settings.opacity
         panel.hasShadow = mode.wantsWindowShadow
         rebuildRootView()
-        restoreFrame(size: startingSize(for: mode))
+        restoreFrame(size: startingSize(mode: mode, expanded: false))
         observeScreenChanges()
+        observeEscape()
     }
 
     deinit {
@@ -208,6 +337,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         // 拿去 NotificationCenter.default 移除是無效操作（M2 踩過同一個坑）
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         powerObservers.forEach { workspaceCenter.removeObserver($0) }
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -255,15 +385,19 @@ final class PanelController: NSObject, NSWindowDelegate {
         savePosition(for: displayMode)
         displayMode = mode
         settings.displayMode = mode
+        // 離開角色模式時把展開狀態收掉，下次回來才會從小精靈開始（§4.5）
+        isCharacterExpanded = false
+        anchorBeforeExpand = nil
         panel.hasShadow = mode.wantsWindowShadow
 
         rebuildRootView()
-        restoreFrame(size: startingSize(for: mode))
+        restoreFrame(size: startingSize(mode: mode, expanded: false))
         panel.invalidateShadow()
     }
 
     /// rootView 是值型別，重新指派才會讓 SwiftUI 讀到新的 mode
     private func rebuildRootView() {
+        let key = currentSizeKey
         hostingView.rootView = PanelRootView(
             mode: displayMode,
             onToggleCollapsed: { [weak self] in
@@ -273,20 +407,22 @@ final class PanelController: NSObject, NSWindowDelegate {
                 setDisplayMode(displayMode == .collapsed ? .full : .collapsed)
             },
             onSizeChange: { [weak self] size in
-                self?.setContentSize(size)
+                // 帶上這個 rootView 是為哪個狀態建的：切換狀態時，
+                // 舊內容的最後一次回報可能晚一步才到，不擋掉會被算到新狀態的快取上
+                self?.setContentSize(size, from: key)
             },
             isAnimating: isAnimationActive && panel.isVisible,
-            onCharacterClick: {
-                // 點小精靈展開成卡片是 M9.4 的範圍。
-                // M9.3 先不接行為——做一半的展開比沒有展開更讓人困惑
-            },
+            isExpanded: isCharacterExpanded,
+            onToggleExpanded: { [weak self] in self?.toggleCharacterExpanded() },
             characterMenu: { [weak self] in self?.makeCharacterMenu() })
     }
 
-    /// 右鍵選單（M9 計畫 §4.2）。
-    /// 「展開」是 M9.4 才有的功能，這一版先不放，不放比放一個按了沒反應的好
+    /// 右鍵選單（M9 計畫 §4.2）
     private func makeCharacterMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.addItem(withTitle: isCharacterExpanded ? "收回" : "展開",
+                     action: #selector(toggleExpandedFromMenu), keyEquivalent: "").target = self
+        menu.addItem(.separator())
         menu.addItem(withTitle: "重新整理", action: #selector(refreshFromMenu), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "切換成完整模式",
@@ -295,6 +431,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         menu.addItem(withTitle: "結束 FloatingAgenda",
                      action: #selector(quitFromMenu), keyEquivalent: "").target = self
         return menu
+    }
+
+    @objc private func toggleExpandedFromMenu() {
+        toggleCharacterExpanded()
     }
 
     @objc private func refreshFromMenu() {
@@ -308,6 +448,73 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     @objc private func quitFromMenu() {
         NSApplication.shared.terminate(nil)
+    }
+
+    /// 設定改了（例如「顯示對話泡泡」）之後讓面板重畫。
+    /// rootView 是值型別，重新指派才會讓 SwiftUI 重新求值
+    func reloadPanelContent() {
+        rebuildRootView()
+    }
+
+    /// 點小精靈或泡泡展開成卡片，再點標題列的小精靈或按 Esc 收回（§4.5）。
+    ///
+    /// 錨點不變（角色模式一律右上角），所以卡片會往**左下**長，小精靈原本的位置不動。
+    /// 真實尺寸稍後由 onSizeChange 補正；若卡片會超出螢幕下緣，
+    /// `constrained` 會把它往上推（§5.4），而**存起來的小精靈位置不受影響**——
+    /// `savePosition` 只在切換顯示模式與使用者拖曳時才呼叫
+    func toggleCharacterExpanded() {
+        guard displayMode == .character else { return }
+        if isCharacterExpanded {
+            // 收回：回到展開前的位置，不要用被螢幕邊界推上去之後的位置
+            isCharacterExpanded = false
+            panel.hasShadow = false
+            rebuildRootView()
+            let size = startingSize(mode: displayMode, expanded: false)
+            if let anchor = anchorBeforeExpand {
+                applyAnchor(anchor, size: size, mode: displayMode)
+                anchorBeforeExpand = nil
+            } else {
+                setContentSize(size)
+            }
+            panel.invalidateShadow()
+            return
+        }
+
+        anchorBeforeExpand = displayMode.anchor.point(of: panel.frame)
+        isCharacterExpanded = true
+        // 展開的卡片要有毛玻璃與陰影，收回小精靈時再拿掉
+        panel.hasShadow = true
+        rebuildRootView()
+        // 立刻套上目標尺寸，不要停在舊尺寸等 onGeometryChange 來救——
+        // 那個回報只在值**改變**時才觸發（M9.2 踩過同一個坑）。
+        // 用 setContentSize 而不是 restoreFrame：展開要以**目前**的右上角為錨點，
+        // 不是跳回存起來的位置
+        setContentSize(startingSize(mode: displayMode, expanded: isCharacterExpanded))
+        panel.invalidateShadow()
+    }
+
+    /// Esc 收回小精靈（§4.5）。
+    ///
+    /// ⚠️ **實測在一般情況下不會生效**，這是刻意接受的限制：
+    /// 面板是 `.nonactivatingPanel` 且 `canBecomeKey = false`，點它不會讓 App 變成作用中
+    /// （實測 `NSApp.isActive == false`、`keyWindow == nil`），
+    /// 所以 local monitor 收不到鍵盤事件。
+    ///
+    /// 要讓它可靠運作只有兩條路，兩條都不划算：
+    /// 讓面板可以成為 key window（等於點一下小精靈就搶走使用者當前 App 的焦點，
+    /// 與整個懸浮視窗的設計前提相反），或改用 global monitor
+    /// （需要輔助使用權限，而且會攔截整個系統的 Esc）。
+    ///
+    /// 保留這段是因為它在 App 剛好是作用中時仍然有效（例如剛開過選單列）；
+    /// 可靠的收回入口是**標題列的小精靈**與**右鍵選單的「收回」**，兩者都不需要焦點。
+    /// UI 上已經不再宣傳 Esc（codex 2026-09-22 指出，實測確認）
+    private func observeEscape() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.keyCode == 53 else { return event }   // 53 = Esc
+            guard displayMode == .character, isCharacterExpanded else { return event }
+            toggleCharacterExpanded()
+            return nil
+        }
     }
 
     /// 螢幕睡眠／鎖定時停掉動畫，醒來再恢復（§5.3）。
@@ -328,8 +535,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// 而那個設定是必要的（否則它會跟我們的 `setFrame` 打架）。
     /// 所以改用快取：第一次進某個模式仍走靜態佔位值，但那一次尺寸一定會改變，
     /// `onGeometryChange` 必然觸發；之後每次切換都有真實值可用。
-    private func startingSize(for mode: DisplayMode) -> NSSize {
-        lastKnownSize[mode] ?? mode.provisionalSize
+    private func startingSize(mode: DisplayMode, expanded: Bool) -> NSSize {
+        lastKnownSize[SizeKey(mode: mode, expanded: expanded)]
+            ?? (expanded ? DisplayMode.full.provisionalSize : mode.provisionalSize)
     }
 
     // MARK: - 尺寸同步
@@ -338,13 +546,15 @@ final class PanelController: NSObject, NSWindowDelegate {
     ///
     /// 完整／收合模式錨在左上角（寬度固定，只有高度會變）；
     /// 角色模式錨在右上角（寬高都會變）。
-    private func setContentSize(_ size: CGSize) {
+    private func setContentSize(_ size: CGSize, from key: SizeKey? = nil) {
         guard size.width.isFinite, size.height.isFinite,
               size.width > 0, size.height > 0 else { return }
+        // 過期的回報（來自已經被換掉的 rootView）一律丟掉
+        if let key, key != currentSizeKey { return }
 
         // 先記起來再判斷要不要調整：即使這次不用動 frame，
-        // 下次切回這個模式時就有真實尺寸可用
-        lastKnownSize[displayMode] = size
+        // 下次切回這個狀態時就有真實尺寸可用
+        lastKnownSize[currentSizeKey] = size
 
         let frame = panel.frame
         guard abs(frame.width - size.width) > 0.5

@@ -39,6 +39,20 @@ struct MenuBarView: View {
 
             displayModeRow
 
+            // 只有角色模式看得到泡泡，其他模式顯示這個開關只會讓人困惑
+            if (delegate?.panelController?.displayMode ?? settings.displayMode) == .character {
+                Toggle("顯示對話泡泡", isOn: Binding(
+                    get: { settings.showBubble },
+                    set: { newValue in
+                        settings.showBubble = newValue
+                        delegate?.panelController?.reloadPanelContent()
+                        revision += 1
+                    }
+                ))
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+            }
+
             opacityRow
 
             Divider()

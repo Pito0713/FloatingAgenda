@@ -49,6 +49,7 @@ final class AppSettings {
         static let displayMode = "displayMode"
         static let characterTopRightX = "characterTopRightX"
         static let characterTopRightY = "characterTopRightY"
+        static let showBubble = "showBubble"
     }
 
     private let defaults: any SettingsStore
@@ -58,6 +59,7 @@ final class AppSettings {
         defaults.register(defaults: [
             Key.panelVisible: true,
             Key.opacity: 1.0,
+            Key.showBubble: true,
         ])
         Self.migrateDisplayMode(in: defaults)
     }
@@ -117,6 +119,12 @@ final class AppSettings {
             return mode
         }
         set { defaults.set(newValue.rawValue, forKey: Key.displayMode) }
+    }
+
+    /// 角色模式要不要顯示對話泡泡（M9 計畫 §4.4）。關掉只剩小精靈，心情照樣會變
+    var showBubble: Bool {
+        get { defaults.bool(forKey: Key.showBubble) }
+        set { defaults.set(newValue, forKey: Key.showBubble) }
     }
 
     /// 角色模式的面板**右上角**。
