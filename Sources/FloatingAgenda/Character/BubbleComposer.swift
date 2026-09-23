@@ -88,8 +88,8 @@ enum BubbleComposer {
 /// 抽成值型別是為了讓「資料更新時不要打斷正在顯示的那一則」這條規則能被單元測試釘住——
 /// 那是這段邏輯裡唯一不直觀的地方。
 struct BubbleRotation: Equatable {
-    /// 每則顯示幾秒
-    static let interval: TimeInterval = 8
+    /// 每則顯示幾秒。計畫 §4.4 寫 8 秒，使用者 2026-09-23 要求改成 10 秒
+    static let interval: TimeInterval = 10
 
     private(set) var lines: [BubbleComposer.Line]
     private(set) var index: Int

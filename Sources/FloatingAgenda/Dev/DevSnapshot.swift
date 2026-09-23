@@ -152,7 +152,7 @@ enum DevSnapshot {
 
             // 小精靈加一則兩行的泡泡（§5.7）
             let bubble = HStack(alignment: .center, spacing: 6) {
-                BubbleView(text: "⏰ 逾期：把這一則寫長一點，讓泡泡換到第二行")
+                BubbleView(text: "⏰ 逾期：把這一則寫長一點，讓泡泡換到第二行", background: .opaque)
                 CharacterView(mood: .worried)
             }
             .fixedSize()

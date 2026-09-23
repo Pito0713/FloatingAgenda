@@ -49,6 +49,8 @@ final class AppSettings {
         static let displayMode = "displayMode"
         static let characterTopRightX = "characterTopRightX"
         static let characterTopRightY = "characterTopRightY"
+        static let characterBottomRightX = "characterBottomRightX"
+        static let characterBottomRightY = "characterBottomRightY"
         static let showBubble = "showBubble"
         static let characterSkinID = "characterSkinID"
     }
@@ -136,7 +138,31 @@ final class AppSettings {
         set { defaults.set(newValue, forKey: Key.characterSkinID) }
     }
 
-    /// 角色模式的面板**右上角**。
+    /// 角色模式的面板**右下角**（2026-09-23 起）。
+    ///
+    /// 泡泡在小精靈左邊、底部對齊小精靈中線，所以小精靈的右下角就是面板的右下角——
+    /// 錨在這裡小精靈才會釘在定點，不會隨泡泡換行而上下跑。
+    /// 舊的 `characterTopRight` 保留不刪，第一次啟動新版時由 `PanelController` 換算過來
+    var characterBottomRight: CGPoint? {
+        get {
+            guard let x = defaults.object(forKey: Key.characterBottomRightX) as? Double,
+                  let y = defaults.object(forKey: Key.characterBottomRightY) as? Double else {
+                return nil
+            }
+            return CGPoint(x: x, y: y)
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Key.characterBottomRightX)
+                defaults.removeObject(forKey: Key.characterBottomRightY)
+                return
+            }
+            defaults.set(Double(newValue.x), forKey: Key.characterBottomRightX)
+            defaults.set(Double(newValue.y), forKey: Key.characterBottomRightY)
+        }
+    }
+
+    /// 角色模式的面板右上角（**舊版遺留**，2026-09-23 起改存右下角）。
     ///
     /// 與 `panelTopLeft` 分開存（計畫 §5.5）：角色模式的面板寬高都會隨內容變，
     /// 靠右上角定位泡泡往左長、卡片往左下長，小精靈才不會跳。

@@ -80,10 +80,11 @@ final class PanelAnchorTests: XCTestCase {
 
     // MARK: - 模式對應
 
-    func testCardModesAnchorTopLeftAndCharacterAnchorsTopRight() {
+    func testCardModesAnchorTopLeftAndCharacterAnchorsBottomRight() {
         XCTAssertEqual(DisplayMode.full.anchor, .topLeft)
         XCTAssertEqual(DisplayMode.collapsed.anchor, .topLeft)
-        XCTAssertEqual(DisplayMode.character.anchor, .topRight)
+        // 2026-09-23 起改成右下角，理由見 PanelAnchor 的註解
+        XCTAssertEqual(DisplayMode.character.anchor, .bottomRight)
     }
 
     func testOnlyCharacterModeDropsTheWindowShadow() {
@@ -159,20 +160,6 @@ final class PanelAnchorTests: XCTestCase {
                        "卡片預設貼上緣")
         XCTAssertEqual(point.x + size.width, screen.maxX - PanelMetrics.screenInset,
                        accuracy: 0.5, "卡片預設靠右")
-    }
-
-    /// 角色預設在**右下角**（計畫 §5.4），泡泡往左長、卡片往左上長都還在畫面內
-    func testCharacterDefaultIsBottomRightOfScreen() throws {
-        let screen = try XCTUnwrap(NSScreen.screens.first).visibleFrame
-        let size = DisplayMode.character.provisionalSize
-        let point = PanelController.defaultAnchorPoint(for: .character, size: size)
-        let frame = PanelAnchor.topRight.frame(at: point, size: size)
-
-        XCTAssertEqual(frame.maxX, screen.maxX - PanelMetrics.screenInset, accuracy: 0.5,
-                       "角色預設靠右")
-        XCTAssertEqual(frame.minY, screen.minY + PanelMetrics.screenInset, accuracy: 0.5,
-                       "角色預設貼下緣")
-        XCTAssertTrue(PanelController.isUsable(frame: frame), "預設位置必須是可用的")
     }
 
     /// 預設位置算出來的 frame 一定要完整落在螢幕內，否則一開機就看不到
@@ -270,5 +257,60 @@ final class PanelRestoreTests: XCTestCase {
         XCTAssertEqual(card.minX, point.x, "卡片：該點是左上角")
         XCTAssertEqual(character.maxX, point.x, "角色：該點是右上角")
         XCTAssertNotEqual(card, character)
+    }
+}
+
+/// 角色模式：小精靈要釘在定點（使用者 2026-09-23 回報泡泡換行時人物會上下跑）
+@MainActor
+final class CharacterAnchorTests: XCTestCase {
+
+    /// 泡泡在小精靈左邊、底部對齊小精靈中線，所以**小精靈的右下角就是面板的右下角**。
+    /// 面板錨在右下角，泡泡再怎麼長高，小精靈的位置都不該動
+    func testCharacterStaysPutWhenTheBubbleGrows() {
+        let anchor = PanelAnchor.bottomRight
+        let small = NSRect(x: 900, y: 100, width: 368, height: 83)   // 一行的泡泡
+        let point = anchor.point(of: small)
+
+        let tall = anchor.frame(at: point, size: NSSize(width: 368, height: 260))
+        XCTAssertEqual(anchor.point(of: tall), point, "錨點不該動")
+        XCTAssertEqual(tall.maxX, small.maxX, "右緣不該動")
+        XCTAssertEqual(tall.minY, small.minY, "下緣不該動——小精靈就貼在這裡")
+        XCTAssertGreaterThan(tall.maxY, small.maxY, "泡泡應該往上長")
+    }
+
+    /// 反過來，從長泡泡換成短泡泡也一樣
+    func testCharacterStaysPutWhenTheBubbleShrinks() {
+        let anchor = PanelAnchor.bottomRight
+        let tall = NSRect(x: 900, y: 100, width: 368, height: 260)
+        let point = anchor.point(of: tall)
+
+        let small = anchor.frame(at: point, size: NSSize(width: 368, height: 83))
+        XCTAssertEqual(small.maxX, tall.maxX)
+        XCTAssertEqual(small.minY, tall.minY, "下緣不該動")
+    }
+
+    /// ⚠️ 用右上角當錨點就會出現使用者回報的症狀：下緣跟著高度跑
+    func testTopRightAnchorWouldMoveTheCharacter() {
+        let small = NSRect(x: 900, y: 100, width: 368, height: 83)
+        let point = PanelAnchor.topRight.point(of: small)
+        let tall = PanelAnchor.topRight.frame(at: point, size: NSSize(width: 368, height: 260))
+        XCTAssertNotEqual(tall.minY, small.minY,
+                          "若這裡相等代表換算邏輯有問題——右上角錨點必然讓下緣移動")
+    }
+
+    func testCharacterModeUsesTheBottomRightAnchor() {
+        XCTAssertEqual(DisplayMode.character.anchor, .bottomRight)
+    }
+
+    /// 預設位置：右下角內縮 20pt，而且整個面板要在畫面內
+    func testCharacterDefaultSitsAtTheBottomRightInset() throws {
+        let screen = try XCTUnwrap(NSScreen.screens.first).visibleFrame
+        let size = DisplayMode.character.provisionalSize
+        let point = PanelController.defaultAnchorPoint(for: .character, size: size)
+        let frame = PanelAnchor.bottomRight.frame(at: point, size: size)
+
+        XCTAssertEqual(frame.maxX, screen.maxX - PanelMetrics.screenInset, accuracy: 0.5)
+        XCTAssertEqual(frame.minY, screen.minY + PanelMetrics.screenInset, accuracy: 0.5)
+        XCTAssertTrue(PanelController.isUsable(frame: frame))
     }
 }

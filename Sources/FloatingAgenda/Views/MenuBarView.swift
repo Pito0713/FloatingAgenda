@@ -16,6 +16,8 @@ struct MenuBarView: View {
     /// 只用來在寫入設定後觸發重繪。
     /// getter 一律直接讀 `settings`，不保留鏡像狀態，這樣就不會顯示過期值
     @State private var revision = 0
+    /// 篩選區內容的自然高度，用來決定 ScrollView 要多高
+    @State private var filterSectionsHeight: CGFloat = 0
 
     var body: some View {
         // 讀取 revision 建立重繪依賴。**不要用 `.id(revision)`**——透明度滑桿拖曳時
@@ -59,10 +61,27 @@ struct MenuBarView: View {
 
             Divider()
 
-            // 行事曆與清單可能很多，兩個區段一起包在固定高度上限的 ScrollView 裡
+            // 行事曆與清單可能很多，兩個區段一起包在高度上限 320pt 的 ScrollView 裡。
+            //
+            // ⚠️ 一定要給**明確高度**，不能只用 `maxHeight`：
+            // ScrollView 的理想高度接近 0，只給上限的話外層一擠它就縮成一條線，
+            // 篩選區會變成一段被裁掉的文字（使用者 2026-09-23 回報，
+            // M5 的使用者驗收第 2 項一直沒被驗到）。
+            // 先量內容的自然高度，再取 min(自然高度, 320)
             if scrollable {
-                ScrollView { filterSections }
-                    .frame(maxHeight: 320)
+                ScrollView {
+                    filterSections
+                        // 內容要撐滿寬度，否則捲動條會貼在內容的右緣
+                        // 而不是選單的右緣，看起來像浮在中間（使用者 2026-09-23 回報）
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.height
+                        } action: { height in
+                            filterSectionsHeight = height
+                        }
+                }
+                .frame(height: min(max(filterSectionsHeight, 44), 320))
+                .scrollIndicators(.automatic)
             } else {
                 filterSections
             }
@@ -107,27 +126,32 @@ struct MenuBarView: View {
     /// 皮膚只在**打開這個選單時**重新掃描，不監聽資料夾——
     /// 使用者放進新皮膚後只要關掉再打開選單就會看到
     private var characterSkinRow: some View {
-        HStack(spacing: 6) {
-            Text("角色")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Picker("", selection: Binding(
-                get: { delegate?.panelController?.activeSkin.id ?? BuiltinCharacter.id },
-                set: { newValue in
-                    delegate?.panelController?.selectSkin(newValue)
-                    revision += 1
+        // 版面跟「透明度」那一列一致：標題自己一行靠左，控制項在下面撐滿寬度。
+        // 用 Picker 內建的 label 會讓標題與控制項擠在同一行且右對齊，
+        // 與上下其他列對不齊（使用者 2026-09-23 回報）
+        VStack(alignment: .leading, spacing: 4) {
+            Text("皮膚")
+                .font(.system(size: 12))
+            HStack(spacing: 6) {
+                Picker("", selection: Binding(
+                    get: { delegate?.panelController?.activeSkin.id ?? BuiltinCharacter.id },
+                    set: { newValue in
+                        delegate?.panelController?.selectSkin(newValue)
+                        revision += 1
+                    }
+                )) {
+                    ForEach(delegate?.panelController?.availableSkins ?? []) { skin in
+                        Text(skin.name).tag(skin.id)
+                    }
                 }
-            )) {
-                ForEach(delegate?.panelController?.availableSkins ?? []) { skin in
-                    Text(skin.name).tag(skin.id)
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .controlSize(.small)
+                Button("打開資料夾…") {
+                    delegate?.panelController?.openSkinsFolder()
                 }
+                .controlSize(.small)
             }
-            .labelsHidden()
-            .controlSize(.small)
-            Button("打開皮膚資料夾…") {
-                delegate?.panelController?.openSkinsFolder()
-            }
-            .controlSize(.small)
         }
         .onAppear { delegate?.panelController?.reloadSkins() }
     }

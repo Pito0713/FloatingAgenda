@@ -59,12 +59,12 @@ final class PanelControllerTests: XCTestCase {
     /// 而且面板的**右上角**要等於那個值
     func testSwitchingToCharacterRecordsItsOwnAnchor() {
         let (controller, settings) = makeController { $0.displayMode = .full }
-        XCTAssertNil(settings.characterTopRight)
+        XCTAssertNil(settings.characterBottomRight)
 
         controller.setDisplayMode(.character)
 
         let frame = controller.panelFrame
-        XCTAssertEqual(PanelAnchor.topRight.point(of: frame),
+        XCTAssertEqual(PanelAnchor.bottomRight.point(of: frame),
                        PanelController.defaultAnchorPoint(
                            for: .character, size: frame.size),
                        "角色模式第一次出現應該在預設的右下角")
@@ -105,12 +105,12 @@ final class PanelControllerTests: XCTestCase {
     /// 反方向也要成立：角色 → 卡片 → 角色
     func testRoundTripReturnsTheCharacterToItsOriginalPosition() {
         let (controller, _) = makeController { $0.displayMode = .character }
-        let original = PanelAnchor.topRight.point(of: controller.panelFrame)
+        let original = PanelAnchor.bottomRight.point(of: controller.panelFrame)
 
         controller.setDisplayMode(.full)
         controller.setDisplayMode(.character)
 
-        XCTAssertEqual(PanelAnchor.topRight.point(of: controller.panelFrame), original)
+        XCTAssertEqual(PanelAnchor.bottomRight.point(of: controller.panelFrame), original)
     }
 
     /// 切回某個模式後，面板尺寸要是真實內容的尺寸，不是佔位值。
@@ -146,7 +146,7 @@ final class PanelControllerTests: XCTestCase {
         controller.setDisplayMode(.full)        // 離開 character → 存 characterTopRight
 
         let cardAnchor = try? XCTUnwrap(settings.panelTopLeft)
-        let characterAnchor = try? XCTUnwrap(settings.characterTopRight)
+        let characterAnchor = try? XCTUnwrap(settings.characterBottomRight)
 
         XCTAssertNotNil(cardAnchor)
         XCTAssertNotNil(characterAnchor)
@@ -158,7 +158,7 @@ final class PanelControllerTests: XCTestCase {
     func testEnteringAModeDoesNotWriteItsPositionYet() {
         let (controller, settings) = makeController { $0.displayMode = .full }
         controller.setDisplayMode(.character)
-        XCTAssertNil(settings.characterTopRight,
+        XCTAssertNil(settings.characterBottomRight,
                      "還沒離開也沒拖曳過，位置應該留給預設值去算")
     }
 
@@ -295,8 +295,11 @@ final class CharacterExpansionTests: XCTestCase {
                        "展開後應該是卡片的寬度")
 
         controller.toggleCharacterExpanded()
-        XCTAssertLessThan(controller.panelFrame.width, PanelMetrics.width,
-                          "收回後應該比卡片窄（小精靈 ＋ 泡泡）")
+        XCTAssertNotEqual(controller.panelFrame.width, PanelMetrics.width,
+                          "收回後不該還是卡片的寬度")
+        // 待機時的寬度 ＝ 泡泡 ＋ 間距 ＋ 小精靈。
+        // 泡泡在 2026-09-23 放大之後，這個寬度**比卡片還寬**，
+        // 所以不能假設「收回一定比較窄」
         XCTAssertGreaterThanOrEqual(
             controller.panelFrame.width,
             PanelMetrics.characterSize + PanelMetrics.characterPadding * 2,
@@ -311,18 +314,18 @@ final class CharacterExpansionTests: XCTestCase {
         let screen = try XCTUnwrap(NSScreen.screens.first).visibleFrame
         let settings = Fixture.settings()
         settings.displayMode = .character
-        // 放在最下緣，展開一定會被往上推
-        settings.characterTopRight = CGPoint(x: screen.maxX - 20,
-                                             y: screen.minY + 20 + 80)
+        // 貼著**上緣**放：錨點改成右下角之後，卡片是往上長的，
+        // 只有小精靈在畫面頂端時展開才會撞到邊界被往下推
+        settings.characterBottomRight = CGPoint(x: screen.maxX - 20, y: screen.maxY - 100)
         let controller = PanelController(settings: settings)
-        let before = PanelAnchor.topRight.point(of: controller.panelFrame)
+        let before = PanelAnchor.bottomRight.point(of: controller.panelFrame)
 
         controller.toggleCharacterExpanded()
-        XCTAssertNotEqual(PanelAnchor.topRight.point(of: controller.panelFrame), before,
+        XCTAssertNotEqual(PanelAnchor.bottomRight.point(of: controller.panelFrame), before,
                           "前提：展開時確實被螢幕邊界推開了，否則這條沒有鑑別力")
 
         controller.toggleCharacterExpanded()
-        XCTAssertEqual(PanelAnchor.topRight.point(of: controller.panelFrame), before,
+        XCTAssertEqual(PanelAnchor.bottomRight.point(of: controller.panelFrame), before,
                        "收回後應該回到展開前的位置")
     }
 
@@ -331,15 +334,15 @@ final class CharacterExpansionTests: XCTestCase {
         let screen = try XCTUnwrap(NSScreen.screens.first).visibleFrame
         let settings = Fixture.settings()
         settings.displayMode = .character
-        let saved = CGPoint(x: screen.maxX - 20, y: screen.minY + 20 + 80)
-        settings.characterTopRight = saved
+        let saved = CGPoint(x: screen.maxX - 20, y: screen.maxY - 100)
+        settings.characterBottomRight = saved
         let controller = PanelController(settings: settings)
 
         controller.toggleCharacterExpanded()
         controller.toggleCharacterExpanded()
         controller.setDisplayMode(.full)
 
-        XCTAssertEqual(settings.characterTopRight, saved,
+        XCTAssertEqual(settings.characterBottomRight, saved,
                        "展開再收回之後切換模式，存的應該還是原本的位置")
     }
 

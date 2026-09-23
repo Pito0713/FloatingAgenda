@@ -29,16 +29,22 @@ enum PanelMetrics {
 /// 面板用哪個角定位。
 ///
 /// 完整與收合模式用**左上角**：寬度固定，高度隨內容變，使用者拖曳時抓的也是那一角。
-/// 角色模式用**右上角**：寬高都會隨內容變（小精靈 → 小精靈加泡泡 → 展開的卡片），
-/// 泡泡往左長、卡片往左下長，靠右上角定位小精靈才不會跳（M9 計畫 §5.4）。
+///
+/// 角色模式用**右下角**。計畫 §5.4 原本寫右上角，但那是在泡泡還沒做出來時定的：
+/// 泡泡在小精靈左邊、底部對齊小精靈中線，於是**小精靈的右下角永遠就是面板的右下角**
+/// （泡泡高度 ≥ 小精靈的一半，所以面板上緣一定由泡泡決定）。
+/// 錨在右上角的話，泡泡一換行面板高度就變，底部跟著位移，小精靈就會上下跑
+/// （使用者 2026-09-23 實測回報）。錨在右下角，小精靈才真的釘在定點。
 enum PanelAnchor {
     case topLeft
     case topRight
+    case bottomRight
 
     func point(of frame: NSRect) -> CGPoint {
         switch self {
         case .topLeft: CGPoint(x: frame.minX, y: frame.maxY)
         case .topRight: CGPoint(x: frame.maxX, y: frame.maxY)
+        case .bottomRight: CGPoint(x: frame.maxX, y: frame.minY)
         }
     }
 
@@ -50,6 +56,9 @@ enum PanelAnchor {
         case .topRight:
             NSRect(x: anchor.x - size.width, y: anchor.y - size.height,
                    width: size.width, height: size.height)
+        case .bottomRight:
+            NSRect(x: anchor.x - size.width, y: anchor.y,
+                   width: size.width, height: size.height)
         }
     }
 }
@@ -58,7 +67,7 @@ extension DisplayMode {
     var anchor: PanelAnchor {
         switch self {
         case .full, .collapsed: .topLeft
-        case .character: .topRight
+        case .character: .bottomRight
         }
     }
 
@@ -167,15 +176,23 @@ struct PanelRootView: View {
     /// 泡泡在小精靈**左邊**、垂直置中（§4.2）。
     /// 沒有泡泡時，面板大小就等於小精靈的大小——點擊穿透靠的就是這件事（§5.4）
     private var idleCharacter: some View {
-        HStack(alignment: .center, spacing: 6) {
+        // 泡泡的**底部**對齊小精靈的**垂直中線**（使用者 2026-09-23 定案）。
+        //
+        // 置中對齊會讓長泡泡把小精靈擠到中間、上下都是框；
+        // 頂端對齊則會讓長泡泡整片往下長，小精靈卡在最上面。
+        // 只有「泡泡底部 ＝ 人物中線」能讓泡泡**一律往上長**、
+        // 人物永遠在泡泡的右下方，也就是漫畫對話框的相對位置。
+        HStack(alignment: .bubbleBottomToCharacterCenter, spacing: 6) {
             if settings.showBubble, let line = rotation.current {
                 BubbleView(text: line.text) { isHoveringBubble = $0 }
                     // 點泡泡的效果跟點小精靈一樣（§4.2）
                     .onTapGesture(perform: onToggleExpanded)
                     .transition(.opacity)
                     .id(line.id)
+                    .alignmentGuide(.bubbleBottomToCharacterCenter) { $0[.bottom] }
             }
             characterSprite
+                .alignmentGuide(.bubbleBottomToCharacterCenter) { $0[VerticalAlignment.center] }
         }
         // **一定要 fixedSize**：沒有它，這一塊會撐滿被提議的寬度
         // （例如剛從展開的卡片收回來時是 320pt），面板就會比看得到的內容大一圈，
@@ -315,13 +332,14 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     /// 重新掃描皮膚資料夾。啟動時與打開角色選單時呼叫
-    func reloadSkins() {
+    @discardableResult
+    func reloadSkins() -> Task<Void, Never> {
         skinGeneration += 1
         let generation = skinGeneration
         let directory = SkinLoader.defaultDirectory()
         // 掃描要讀 JSON、解 PNG、建 CGImage，皮膚多或磁碟慢時會拖住主執行緒，
         // 連常駐動畫一起卡住（codex 2026-09-22 指出）。丟到背景，結果再切回來
-        Task.detached(priority: .utility) {
+        return Task.detached(priority: .utility) {
             let result = SkinLoader.scan(directory: directory)
             await MainActor.run { [weak self] in
                 guard let self, self.skinGeneration == generation else { return }
@@ -372,9 +390,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.alphaValue = settings.opacity
         panel.hasShadow = mode.wantsWindowShadow
+        availableSkins = [CharacterAnimation.builtinSkin]
         rebuildRootView()
         restoreFrame(size: startingSize(mode: mode, expanded: false))
-        availableSkins = [CharacterAnimation.builtinSkin]
         reloadSkins()
         observeScreenChanges()
         observeEscape()
@@ -688,7 +706,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private func restoreFrame(size: NSSize) {
         let mode = displayMode
         let target = Self.resolveAnchorPoint(for: mode,
-                                             saved: savedAnchorPoint(for: mode),
+                                             saved: savedAnchorPoint(for: mode, size: size),
                                              size: size)
         // 尺寸已經是量到的真實值，所以水平垂直都可以當場夾限。
         // （舊版在這裡用佔位高度，垂直夾限會把卡片推到錯的地方——實測存 y=200 會變成 286——
@@ -709,10 +727,19 @@ final class PanelController: NSObject, NSWindowDelegate {
         return defaultAnchorPoint(for: mode, size: size)
     }
 
-    private func savedAnchorPoint(for mode: DisplayMode) -> CGPoint? {
+    /// - Parameter size: 角色模式從舊的「右上角」設定遷移時要用到，
+    ///   右上角減掉高度才是右下角
+    private func savedAnchorPoint(for mode: DisplayMode, size: NSSize) -> CGPoint? {
         switch mode {
-        case .full, .collapsed: settings.panelTopLeft
-        case .character: settings.characterTopRight
+        case .full, .collapsed:
+            return settings.panelTopLeft
+        case .character:
+            if let bottomRight = settings.characterBottomRight { return bottomRight }
+            // 舊版存的是右上角（2026-09-23 之前）。換算成右下角，只做這一次；
+            // 之後 savePosition 寫的就是新的 key 了
+            return settings.characterTopRight.map {
+                CGPoint(x: $0.x, y: $0.y - size.height)
+            }
         }
     }
 
@@ -720,7 +747,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         let point = mode.anchor.point(of: panel.frame)
         switch mode {
         case .full, .collapsed: settings.panelTopLeft = point
-        case .character: settings.characterTopRight = point
+        case .character: settings.characterBottomRight = point
         }
     }
 
@@ -811,7 +838,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         case .full, .collapsed:
             return CGPoint(x: visible.maxX - size.width - inset, y: visible.maxY - inset)
         case .character:
-            return CGPoint(x: visible.maxX - inset, y: visible.minY + inset + size.height)
+            // 右下角內縮。錨點就是右下角，所以不必再加上高度
+            return CGPoint(x: visible.maxX - inset, y: visible.minY + inset)
         }
     }
 
