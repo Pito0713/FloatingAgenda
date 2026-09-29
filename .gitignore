@@ -5,3 +5,7 @@ build/
 .swiftpm/
 xcuserdata/
 .claude/
+# 產素材的中間輸出（逐格 PNG、contact sheet、preview、manifest）。
+# App 只吃 Sources/FloatingAgenda/Resources/IllustratedSkins/，這裡的東西不進 repo——
+# 目前累積 147MB，commit 進去公開 repo 的歷史就會永遠背著它
+artifacts/
