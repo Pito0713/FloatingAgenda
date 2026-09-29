@@ -53,6 +53,7 @@ final class AppSettings {
         static let characterBottomRightY = "characterBottomRightY"
         static let showBubble = "showBubble"
         static let characterSkinID = "characterSkinID"
+        static let showProjectTicker = "showProjectTicker"
     }
 
     private let defaults: any SettingsStore
@@ -63,6 +64,7 @@ final class AppSettings {
             Key.panelVisible: true,
             Key.opacity: 1.0,
             Key.showBubble: true,
+            Key.showProjectTicker: true,
         ])
         Self.migrateDisplayMode(in: defaults)
     }
@@ -122,6 +124,15 @@ final class AppSettings {
             return mode
         }
         set { defaults.set(newValue.rawValue, forKey: Key.displayMode) }
+    }
+
+    /// 完整模式的卡片要不要顯示專案輪播（使用者 2026-09-29 要求）。
+    ///
+    /// 預設開：沒有 `~/.agent-sessions` 的人本來就看不到那一塊
+    ///（`ProjectsSection` 沒有內容時整塊不存在），不需要再多一道開關才看得到
+    var showProjectTicker: Bool {
+        get { defaults.bool(forKey: Key.showProjectTicker) }
+        set { defaults.set(newValue, forKey: Key.showProjectTicker) }
     }
 
     /// 角色模式要不要顯示對話泡泡（M9 計畫 §4.4）。關掉只剩小精靈，心情照樣會變

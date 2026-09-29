@@ -110,6 +110,31 @@ enum DevSnapshot {
             guard writePNG(cgImage, scale: 2, to: path) else { return 1 }
             print("✅ \(path)  \(cgImage.width)×\(cgImage.height)px")
 
+            // 完整卡片 ＋ 專案輪播（使用者 2026-09-29 要求）。
+            //
+            // 刻意**另外輸出一張**，不併進上面那張主圖：§7.1 要求完整模式的 snapshot
+            // 逐位元組不變，而沒有交接紀錄的人看到的就是上面那張。
+            // `projectsAreAnimating: false` → 不建立計時器，永遠停在第一個專案，輸出可重現
+            let ticker = WidgetView(eventsState: .loaded(items: events, total: events.count),
+                                    remindersState: .loaded(items: reminders,
+                                                            total: reminders.count),
+                                    pendingReminderIDs: MockData.pendingReminderIDs,
+                                    background: .opaque,
+                                    now: MockData.referenceDate(),
+                                    projectsState: .loaded(items: MockData.projects(),
+                                                           total: MockData.projects().count),
+                                    projectsAreAnimating: false)
+                .frame(width: PanelMetrics.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .environment(\.colorScheme, item.scheme)
+            guard let tickerImage = render(ticker, appearance: appearance) else {
+                fail("ImageRenderer 產不出專案輪播的卡片")
+                return 1
+            }
+            let tickerPath = "\(prefix)-ticker-\(item.suffix).png"
+            guard writePNG(tickerImage, scale: 2, to: tickerPath) else { return 1 }
+            print("✅ \(tickerPath)  \(tickerImage.width)×\(tickerImage.height)px")
+
             // 選單列（PLAN §4.5）。delegate 傳 nil → 沒有面板可操作，純渲染
             let menu = MenuBarView(calendars: MockData.calendars(),
                                    reminderLists: MockData.reminderLists(),
@@ -176,8 +201,9 @@ enum DevSnapshot {
                 background: .opaque,
                 now: MockData.referenceDate(),
                 projectsState: .loaded(items: mockProjects, total: mockProjects.count),
-                characterMood: .worried,
-                projectsScrollable: false)
+                // 輪播停在第一個專案，輸出才可重現
+                projectsAreAnimating: false,
+                characterMood: .worried)
                 .frame(width: PanelMetrics.width)
                 .fixedSize(horizontal: false, vertical: true)
                 .environment(\.colorScheme, item.scheme)

@@ -41,6 +41,21 @@ struct MenuBarView: View {
 
             displayModeRow
 
+            // 專案輪播只出現在完整模式（`PanelRootView.showsProjectTicker`），
+            // 其他模式顯示這個開關會讓人以為打開就看得到
+            if (delegate?.panelController?.displayMode ?? settings.displayMode) == .full {
+                Toggle("顯示專案待辦", isOn: Binding(
+                    get: { settings.showProjectTicker },
+                    set: { newValue in
+                        settings.showProjectTicker = newValue
+                        delegate?.panelController?.reloadPanelContent()
+                        revision += 1
+                    }
+                ))
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+            }
+
             // 只有角色模式看得到泡泡，其他模式顯示這個開關只會讓人困惑
             if (delegate?.panelController?.displayMode ?? settings.displayMode) == .character {
                 Toggle("顯示對話泡泡", isOn: Binding(

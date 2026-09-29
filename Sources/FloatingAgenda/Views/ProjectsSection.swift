@@ -1,140 +1,109 @@
+import Combine
 import SwiftUI
 
-/// 展開卡片裡的專案區（M9 計畫 §4.5）。
+/// 專案區（M9 計畫 §4.5，2026-09-29 由捲動清單改成輪播）。
+///
+/// **完整模式與角色模式展開後用的是這同一個 View**（使用者 2026-09-29 要求）：
+/// 一次顯示一個專案，每 8 秒換下一個。原本角色模式是一次攤開 4 張卡、裝在
+/// 有高度上限的 `ScrollView` 裡，使用者不要捲動，改成與完整模式一樣的輪播。
+///
+/// 兩個模式唯一的差別是 `showsStatusNotes`——讀不到資料時要不要說一句話。
 ///
 /// **完全唯讀**：打勾圓圈只是顯示，點了沒有反應。
 /// 只有專案名稱可以點，用來開啟該專案的 `latest.md`。
 /// 這個 View 不認識 `ProjectStore`，狀態與互動都是注入的（§5.6）。
+/// 卡片長什麼樣是 `ProjectCardView` 的事。
 struct ProjectsSection: View {
     let state: SectionState<ProjectItem>
+    /// 面板隱藏、螢幕睡眠、snapshot 時傳 false，計時器就不會建立（同泡泡的作法）
+    var isAnimating = true
+    /// 讀不到／還在讀／一個專案都沒有時，要不要留一行字說明。
+    ///
+    /// 角色模式展開是使用者**特地點開來看專案**的，什麼都不講會像壞掉；
+    /// 完整模式這一塊是附帶的，沒有交接紀錄的人整塊消失才對——
+    /// 否則每個沒用過 `~/.agent-sessions` 的人卡片下面都會掛一行「還沒有任何交接紀錄」
+    var showsStatusNotes = true
     /// 點專案名稱。snapshot 傳空實作
     var onOpen: (ProjectItem) -> Void = { _ in }
 
-    /// 最多顯示幾個專案（§4.5）
-    static let displayLimit = 4
-    /// 每個專案最多列幾項待辦
-    static let todoLimit = 3
+    /// 輪播位置。只記 id，不記清單——理由見 `ProjectTicker.Cursor`
+    @State private var cursor = ProjectTicker.Cursor()
+    /// 滑鼠停在卡片上時暫停輪播
+    @State private var isHovering = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let entries = ProjectTicker.entries(projects: state)
+        if let project = cursor.current(in: entries) {
+            container {
+                header(entries: entries)
+                ProjectCardView(project: project, onOpen: onOpen)
+                    // `.id` 讓換頁被當成「換一張卡」而不是「同一張卡改文字」，
+                    // 淡入淡出才會發生
+                    .id(project.id)
+                    .transition(.opacity)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: project.id)
+            .onReceive(timer(count: entries.count)) { _ in
+                // 滑鼠停在卡片上時暫停：使用者正在讀，換掉等於把字抽走
+                guard !isHovering else { return }
+                cursor.advance(in: entries)
+            }
+            .onHover { isHovering = $0 }
+        } else if showsStatusNotes, let message = ProjectTicker.statusNote(for: state) {
+            container {
+                header(entries: [])
+                note(message)
+            }
+        }
+    }
+
+    /// 分隔線畫在這裡而不是 `WidgetView`：沒有專案時整塊消失，分隔線得跟著一起消失，
+    /// 否則卡片最下面會多出一條孤零零的線。
+    /// 下緣補 2pt，讓它與上面「行程／提醒」之間的 10pt 間距一致
+    private func container<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            Divider()
+                .padding(.bottom, 2)
+                .allowsHitTesting(false)
+            content()
+        }
+    }
+
+    /// 右邊的「第幾個／共幾個」：一次只看得到一張卡，
+    /// 不講的話不知道後面還有幾個專案在排隊
+    private func header(entries: [ProjectItem]) -> some View {
+        HStack {
             Text("專案")
                 .font(.system(size: 13, weight: .semibold))
-                .allowsHitTesting(false)
-            content
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch state {
-        case .loading:
-            note("讀取中…")
-        case .needsPermission:
-            // 讀檔不需要 TCC 權限，這個分支理論上到不了，列出來只為了窮盡所有狀態
-            note("需要存取權限")
-        case .failed(let message):
-            note(message)
-        case .loaded(let items, let total):
-            if items.isEmpty {
-                note("還沒有任何交接紀錄")
-            } else {
-                ForEach(items.prefix(Self.displayLimit)) { project in
-                    row(project)
-                }
-                if total > Self.displayLimit {
-                    note("還有 \(total - Self.displayLimit) 個專案")
-                }
-            }
-        }
-    }
-
-    private func row(_ project: ProjectItem) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(project.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(project.statusText.isEmpty ? "⚪️" : project.statusText)
+            Spacer()
+            if !entries.isEmpty {
+                Text("\(cursor.position(in: entries))/\(entries.count)")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
-            }
-            // 只有名稱那一列可點：點了用預設的 .md 編輯器開啟 latest.md（§4.5）
-            .contentShape(Rectangle())
-            .onTapGesture { onOpen(project) }
-
-            progressBar(project)
-                .allowsHitTesting(false)
-
-            if let updated = project.updated {
-                Text("\(Formatting.dateTitle(for: updated)) \(Formatting.timeString(for: updated)) 更新")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .allowsHitTesting(false)
-            }
-
-            if let blocker = project.blocker {
-                Text("⚠️ \(blocker)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-                    .allowsHitTesting(false)
-            }
-
-            ForEach(Array(project.openTodos.prefix(Self.todoLimit)), id: \.self) { todo in
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Image(systemName: "circle")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                    Text(todo)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                // 打勾圓圈只是顯示，點了沒有反應（§4.5）
-                .allowsHitTesting(false)
-            }
-            if project.openTodos.count > Self.todoLimit {
-                Text("＋\(project.openTodos.count - Self.todoLimit) 項")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 14)
-                    .allowsHitTesting(false)
+                    .monospacedDigit()
             }
         }
-        .padding(.vertical, 2)
+        .allowsHitTesting(false)
     }
 
-    private func progressBar(_ project: ProjectItem) -> some View {
-        HStack(spacing: 6) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.10))
-                    Capsule()
-                        .fill(Color.accentColor.opacity(0.75))
-                        .frame(width: proxy.size.width * fraction(project))
-                }
-            }
-            .frame(height: 5)
-            Text("\(project.done)/\(project.total)")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
-    }
-
-    /// 沒有任何項目時不要顯示成 100%——那會讓「還沒開始」看起來像「做完了」
-    private func fraction(_ project: ProjectItem) -> CGFloat {
-        guard project.total > 0 else { return 0 }
-        return CGFloat(project.done) / CGFloat(project.total)
-    }
-
+    /// 純顯示文字：關掉 hit testing，讓下層拖曳區吃到點擊
     private func note(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
             .allowsHitTesting(false)
+    }
+
+    /// 只有**真的會換頁**時才建立計時器：只有一個專案、面板隱藏、snapshot 都不該有東西在跳
+    /// （codex 2026-09-22 對泡泡計時器的同一條指摘）
+    private func timer(count: Int) -> AnyPublisher<Date, Never> {
+        guard isAnimating, count > 1 else {
+            return Empty<Date, Never>(completeImmediately: false).eraseToAnyPublisher()
+        }
+        return Timer.publish(every: ProjectTicker.interval, on: .main, in: .common)
+            .autoconnect()
+            .eraseToAnyPublisher()
     }
 }

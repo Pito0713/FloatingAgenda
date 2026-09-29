@@ -147,6 +147,21 @@ struct PanelRootView: View {
         Self.showsProjects(mode: mode, expanded: isExpanded) ? projects.state : nil
     }
 
+    /// 完整模式的專案輪播（使用者 2026-09-29 要求）。
+    ///
+    /// 與 `showsProjects` 畫的是同一個 `ProjectsSection`，差別只在哪個模式看得到：
+    /// 收合模式只剩兩列塞不下，角色模式待機時面板只有小精靈那麼大。
+    /// 一樣抽成 static 純函式讓規則能被測試釘住——`--snapshot` 直接渲染 `WidgetView`，
+    /// 不經過 `PanelRootView`
+    static func showsProjectTicker(mode: DisplayMode, enabled: Bool) -> Bool {
+        mode == .full && enabled
+    }
+
+    private var visibleProjectTickerState: SectionState<ProjectItem>? {
+        Self.showsProjectTicker(mode: mode, enabled: settings.showProjectTicker)
+            ? projects.state : nil
+    }
+
     private var mood: Mood {
         Mood.decide(reminders: store.remindersState, projects: projects.state, now: Date())
     }
@@ -161,7 +176,9 @@ struct PanelRootView: View {
                    background: .blur,
                    isCollapsed: mode == .collapsed,
                    onToggleCollapsed: onToggleCollapsed,
-                   projectsState: visibleProjectsState,
+                   projectsState: visibleProjectTickerState,
+                   projectsAreAnimating: isAnimating,
+                   onOpenProject: { NSWorkspace.shared.open($0.fileURL) },
                    onOpenEvent: { store.openInCalendar($0) },
                    onToggleReminder: { store.toggleCompletion($0) },
                    onOpenReminder: { store.openInReminders($0) },
@@ -252,6 +269,7 @@ struct PanelRootView: View {
                    reminderError: store.completionError,
                    background: .blur,
                    projectsState: visibleProjectsState,
+                   projectsAreAnimating: isAnimating,
                    characterMood: mood,
                    characterSkin: skin,
                    onCollapseToCharacter: onToggleExpanded,
