@@ -1,29 +1,59 @@
 # FloatingAgenda（懸浮行程）
 
 一張浮在所有視窗最上層的 macOS 卡片，同時顯示**今天的行事曆行程**與**今天的提醒事項**，
-外觀仿原生桌面小工具。
+外觀仿原生桌面小工具。也可以切成一隻像素小精靈，用對話泡泡提醒你今天的事。
 
 原生小工具（WidgetKit）只能放在桌面或通知中心、會被視窗蓋住，這個 App 用
 SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真的懸浮。
 資料用 EventKit 讀，跟系統的行事曆與提醒事項 App 即時同步。
 
-- 需求正本：[`PLAN.md`](PLAN.md)
-- 驗證計畫與逐輪紀錄：[`VERIFICATION.md`](VERIFICATION.md)、[`docs/verification/`](docs/verification/)
+沒有網路連線、沒有第三方套件、不會蒐集或傳送任何資料。
 
 ## 功能
+
+### 三種顯示模式
+
+從選單列的「顯示模式」切換，狀態會記住。
+
+| 模式 | 樣子 |
+|------|------|
+| **完整** | 一張卡片：標題、行程、提醒，最下面是專案輪播 |
+| **收合** | 只剩兩列：行程（標題顯示「正在進行中」或「即將到來」）＋ 第一筆提醒，字級放大 1.25 倍 |
+| **角色** | 一隻 16×16 的像素小精靈，旁邊有對話泡泡；點它展開成完整卡片 |
+
+### 卡片內容
 
 | 區塊 | 內容 |
 |------|------|
 | 標題 | 紅色星期 ＋ 粗體日期，跨午夜自動換 |
 | 行程 | **只有今天**、已結束的不顯示、整天行程排最前面、進行中顯示「進行中 · 至 HH:mm」、最多 6 筆 |
 | 提醒 | **逾期 ＋ 今天到期**（沒設到期日的不顯示）、逾期紅字、最多 6 筆 |
-| 互動 | 點行程開行事曆 App、點提醒標題開提醒事項 App、點圓圈勾選完成（1.2 秒內可取消） |
-| 面板 | 固定寬 320pt、高度隨內容伸縮且上緣不動、可拖曳且記住位置、透明度 30–100% |
-| 專案 | 卡片最下面一次顯示**一個**專案（名稱、燈號、進度條、更新時間、卡住的點、待辦），每 8 秒換下一個，滑鼠停住暫停，點名稱開該專案的 `latest.md`。沒有交接紀錄的話整塊不會出現 |
-| 選單列 | 顯示開關、透明度滑桿、依來源分組的行事曆與清單篩選、「顯示專案待辦」開關、重新整理、結束 |
-| 收合 | 右上角圖示可收合成兩列：行程（標題顯示「正在進行中」或「即將到來」）＋ 第一筆提醒，字級放大 1.25 倍。狀態會記住 |
+| 專案 | 一次顯示**一個**專案（名稱、燈號、進度條、更新時間、卡住的點、待辦），每 8 秒換下一個。見下方「專案進度」 |
 
-不做的事：沒有網路連線、沒有第三方套件、不會蒐集或傳送任何資料。
+### 互動
+
+- 點行程開行事曆 App、點提醒標題開提醒事項 App
+- 點提醒前面的圓圈勾選完成，**1.2 秒內再點一次可以取消**
+- 卡片固定寬 320pt、高度隨內容伸縮且上緣不動、可拖曳且記住位置、透明度 30–100%
+- 點卡片不會搶走目前 App 的焦點
+
+### 角色模式
+
+- **心情**：有逾期的事或專案卡住 → 橘、今天還有事 → 藍、全部清空 → 綠、讀不到資料 → 灰
+- **動畫**：4 fps 逐格動畫與眨眼；開啟系統的「減少動態效果」就不彈跳；面板隱藏或螢幕睡眠時停止
+- **對話泡泡**：依序輪播逾期 → 今天到期 → 卡住的專案 → 專案待辦 → 總結，每則 8 秒，滑鼠停住暫停。選單列可關閉
+- **展開**：點小精靈或泡泡展開成完整卡片；點標題列的小精靈或右鍵選單「收回」收回
+- **皮膚**：可以換成自己畫的角色，見下方「自製角色」
+
+### 選單列
+
+選單列圖示是一頂垂星巫師帽，有逾期或忙碌時會加上狀態點。選單內容：
+
+- 顯示懸浮窗開關、顯示模式（完整／收合／角色）、透明度滑桿
+- 顯示專案待辦、顯示對話泡泡
+- 角色皮膚選擇、打開皮膚資料夾
+- 依來源分組的行事曆與提醒清單篩選
+- 重新整理、結束
 
 ## 建置與安裝
 
@@ -35,8 +65,11 @@ bash scripts/build.sh     # swift build → 組成 .app → ad-hoc 簽章，產�
 bash scripts/install.sh   # 關掉舊行程 → 複製到 ~/Applications → 啟動
 ```
 
-App 是 accessory（`LSUIElement`），**Dock 不會有圖示**，只有選單列的日曆圖示。
+App 是 accessory（`LSUIElement`），**Dock 不會有圖示**，只有選單列的巫師帽圖示。
 要結束就從選單列選「結束 FloatingAgenda」。
+
+日常使用請跑 `install.sh`，讓 App 從 `~/Applications` 執行。`build.sh` 每次開頭會
+`rm -rf build`，直接開 `build/` 裡的 App 的話，一重建就會把正在跑的那份刪掉。
 
 ### 用自己的 bundle identifier
 
@@ -51,60 +84,6 @@ BUNDLE_ID=com.yourname.floatingagenda bash scripts/build.sh
 UserDefaults 也會換一個 domain（面板位置、透明度、篩選設定回到預設值）。
 下面疑難排解與「設定項目」那兩節的指令，請把 ID 換成你建置時用的那一個。
 
-## 測試
-
-```bash
-swift test      # 76 個單元測試，約 1.2 秒
-```
-
-完全不觸碰真實 EventKit 資料、不碰真實 `UserDefaults`：
-
-| 測試檔 | 涵蓋 |
-|--------|------|
-| `FormattingTests` | 逾期判定（只有日期 vs 有時間、剛好等於 `now`）、到期文案分支、行程時間文案的兩端邊界 |
-| `OrderingTests` | 行程排序（整天優先、同時間用標題決勝、跨午夜的現況）、提醒排序 |
-| `InProgressEventTests` | 收合模式挑哪一筆（進行中的兩端邊界、有時間優先於整天、沒有進行中時退而取最近的一筆） |
-| `AppSettingsTests` | 透明度夾限（含 NaN／±∞／型別不對）與 setter、各項設定讀寫、面板位置缺一座標視為無記錄 |
-| `CompletionTests` | **勾選完成的整條路徑**：緩衝期確實存在且預設為規格的 1.2 秒、期內不寫入、期滿才寫入、期內再點完全取消、寫入送出後不假裝取消、多筆互不影響、以及權限被撤／清單全隱藏／讀取失敗／離開今天範圍時一律不准寫入 |
-
-兩個為可測性而做的改動：`AgendaStore.eventOrder` / `reminderOrder` 從 `private` 放寬為
-`internal`（純函式、無副作用）；`AppSettings` 抽出 `SettingsStore` protocol，測試用
-`InMemorySettingsStore`——`UserDefaults(suiteName:)` 會在 `~/Library/Preferences` 留下
-plist 且行程結束時會被 cfprefsd 寫回去，清不掉。
-
-為了能測勾選路徑，EventKit 的寫入抽出了 `ReminderWriter` protocol：production 用
-`EventKitReminderWriter`（**整個專案唯一碰寫入 API 的型別**，只有 5 行、不含任何判斷），
-測試注入 `SpyReminderWriter` 只記錄呼叫。緩衝時間也改成可注入（預設仍是 1.2 秒），
-測試用 60ms。因此測試**從未實例化 `EKEventStore`，不可能寫入任何真實提醒**。
-
-**尚未覆蓋**：`commitCompletion` 裡 `guard pendingCompletion.contains(id)` 這道第二層保險。
-變異測試證明移除它不會讓任何測試失敗——因為漏斗會先取消 Task，讓它在現有路徑下無法被觸及。
-它是防未來有人新增繞過漏斗的路徑用的縱深防禦，保留但無測試覆蓋。
-
-### 開發輔助指令
-
-```bash
-build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --dump
-# 唯讀印出：授權狀態、行事曆與提醒清單（含 ID／來源／是否隱藏）、今天的行程、今天的提醒，
-# 以及 ~/.agent-sessions 底下各專案的進度（名稱、待辦、卡住原因）
-#
-# ⚠️ 輸出包含你真實的行程、提醒與專案內容，**不會自動去識別化**。
-#    貼到 issue、聊天室或任何公開的地方之前請先自行檢查
-
-build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
-# 用 mock 資料輸出 PNG（scale 2），不讀取也不寫入任何真實資料：
-#   /tmp/fa-light.png            卡片（淺色）
-#   /tmp/fa-dark.png             卡片（深色）
-#   /tmp/fa-menu-light|dark.png  選單列
-#   /tmp/fa-collapsed-*.png          收合模式（有進行中的行程）
-#   /tmp/fa-collapsed-upcoming-*.png 收合模式（只有即將到來的行程）
-#   /tmp/fa-collapsed-empty-*.png    收合模式（今天已經沒有行程）
-#   /tmp/fa-permission-*.png     缺權限的畫面
-#   /tmp/fa-failed-*.png         讀取失敗的畫面
-#   /tmp/fa-writefail-*.png      勾選寫入失敗的畫面
-#   /tmp/fa-ticker-*.png         卡片 ＋ 專案輪播
-```
-
 ## 權限
 
 第一次啟動會分別要求「行事曆」與「提醒事項」的存取權。兩者都需要**完整存取**：
@@ -113,26 +92,27 @@ build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 要事後調整：**系統設定 → 隱私權與安全性 → 行事曆／提醒事項**。
 改完不必重開 App，卡片最多 3 秒就會自己載入資料。
 
+整個 App 唯一會寫入的動作是**你自己點圓圈勾選提醒**；其餘對行事曆與提醒的存取全部唯讀。
+
 ## 專案進度（可選）
 
 App 會唯讀掃描 `~/.agent-sessions/<專案>/latest.md` 這種交接文件，把各專案的燈號、
 完成比例與待辦顯示出來。這是作者自己的工作流程慣例，**完全是可選的**：
 
-- 沒有這個目錄是正常的，不是安裝失敗。`--dump` 會印「❌ 找不到 ~/.agent-sessions」，
+- 沒有這個目錄是正常的，不是安裝失敗。專案區不會出現，`--dump` 會印「❌ 找不到 ~/.agent-sessions」，
   App 的其他功能（行程、提醒）完全不受影響
 - 掃描**只讀不寫**：不會新增、修改或刪除那些檔案，也不會改變它們的權限
-- 每個專案讀 `latest.md`，超過 256KB 的檔案會被略過；標題含「已搬遷」的專案會被忽略
+- 每 60 秒與睡眠喚醒時重讀；超過 256KB 的檔案會被略過；標題含「已搬遷」的專案會被忽略
 
 格式是一般的 markdown：`# 標題`、`> 狀態：🟢 順暢`、`> 最後更新：2026-09-18 15:20`、
 `## 進行中` 底下的 `- [x]` / `- [ ]` 清單、`## 卡住的點` 區段。缺欄位不會壞，會用預設值。
 
 呈現方式是**輪播**：一次只顯示一個專案，每 8 秒換下一個，滑鼠停在上面會暫停，
-右上角的「3/7」告訴你現在是第幾個、總共幾個。卡片固定 90pt 高——每個專案的內容長短
-不一，不固定的話每次換頁整個面板都會上下跳。放不下時會少列幾項待辦，
-並在最後一列行尾標「＋N」，不會把字裁掉一半。
+右上角的「3/7」告訴你現在是第幾個、總共幾個，點專案名稱會打開那個 `latest.md`。
+卡片固定 90pt 高——每個專案的內容長短不一，不固定的話每次換頁整個面板都會上下跳。
+放不下時會少列幾項待辦，並在最後一列行尾標「＋N」，不會把字裁掉一半。
 
-完整模式與角色模式展開後用的是**同一個**元件，兩邊不會走鐘。不想看的話，
-選單列（完整模式下）有「顯示專案待辦」開關。
+完整模式與角色模式展開後用的是**同一個**元件。不想看的話，選單列有「顯示專案待辦」開關。
 
 ## 自製角色
 
@@ -142,7 +122,7 @@ App 會唯讀掃描 `~/.agent-sessions/<專案>/latest.md` 這種交接文件，
 ~/Library/Application Support/FloatingAgenda/Skins/<你的皮膚名稱>/
 ```
 
-從選單列 →「打開皮膚資料夾…」可以直接開啟（資料夾不存在會先建立）。
+從選單列 →「打開資料夾…」可以直接開啟（資料夾不存在會先建立）。
 
 ### 資料夾結構
 
@@ -187,7 +167,7 @@ Skins/my-cat/
 | `frames` | 四種心情都要有，每種至少 1 格 |
 | 圖片格式 | PNG |
 | 檔名 | 只能是同一個資料夾裡的檔案。不接受 `/`、`..`，也不跟隨指到資料夾外面的捷徑 |
-| 大小 | `skin.json` 最大 64KB、單張圖片最大 256KB、一個皮膚最多 64 張圖 |
+| 大小 | `skin.json` 最大 64KB、單張圖片最大 256KB、一個皮膚最多 64 張圖；最多讀 32 個皮膚 |
 
 **任何一條不符合，那個皮膚就不會出現在選單裡，App 不會因此出錯。**
 用 `--dump` 的 `== Skins ==` 區段可以看到每個皮膚是有效還是無效、以及無效的原因。
@@ -232,12 +212,66 @@ defaults delete io.github.pito0713.floatingagenda
 
 行程列與提醒列會吃掉點擊（因為要能點開原生 App 與勾選）。
 **完整模式**請從標題區、卡片邊緣的留白、或提醒區的空白處拖曳。
-**收合模式**頂部有一條專用拖曳條（中間有小握把），從那裡拖。
+**收合模式**從頂部那條拖曳條拖。**角色模式**直接拖小精靈（移動超過 3pt 才算拖曳，否則算點擊）。
 
-### 想改顯示範圍或篩選
+### 角色模式按 Esc 收不回來
 
-行事曆與清單的篩選在選單列。顯示範圍目前寫死「只有今天」，
-可調範圍與更細的分類篩選列在 `PLAN.md` §4.9 的後續優化項目。
+已知限制。面板刻意不搶焦點（點它不會讓你正在用的 App 失去焦點），
+代價是一般情況下收不到鍵盤事件。請點標題列的小精靈，或用右鍵選單的「收回」。
+
+## 開發
+
+### 測試
+
+```bash
+swift test      # 348 個單元測試，約 3 秒
+```
+
+測試**從未實例化 `EKEventStore`**，也不碰真實 `UserDefaults` 或你的皮膚資料夾：
+
+- EventKit 寫入抽成 `ReminderWriter` protocol，測試注入 `SpyReminderWriter` 只記錄呼叫
+- 設定層抽成 `SettingsStore` protocol，測試用 `InMemorySettingsStore`
+- 皮膚與專案掃描的測試一律在暫存目錄進行，測完刪除
+
+涵蓋範圍：日期與到期文案、排序、收合挑選、設定讀寫與遷移、**勾選完成的整條路徑**
+（1.2 秒緩衝、取消、權限被撤時拒寫）、面板錨點與幾何、`latest.md` 解析與專案掃描、
+專案輪播與卡片高度、心情判定、像素角色、動畫、對話泡泡、皮膚驗證、選單列圖示。
+
+`PanelAnchorTests` 裡有一個測試需要接兩個螢幕，只有一個螢幕時會自動略過。
+
+### 開發輔助指令
+
+```bash
+build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --dump
+# 唯讀印出：授權狀態、行事曆與提醒清單（含 ID／來源／是否隱藏）、今天的行程、今天的提醒、
+# ~/.agent-sessions 底下各專案的進度，以及皮膚資料夾裡每個皮膚是否有效
+#
+# ⚠️ 輸出包含你真實的行程、提醒與專案內容，**不會自動去識別化**。
+#    貼到 issue、聊天室或任何公開的地方之前請先自行檢查
+
+build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
+# 用 mock 資料輸出 PNG（scale 2），不讀取也不寫入任何真實資料。
+# 每張都有 -light / -dark 兩個版本（char-sprites 除外）：
+#   /tmp/fa-light|dark.png              完整卡片
+#   /tmp/fa-ticker-*.png                卡片 ＋ 專案輪播
+#   /tmp/fa-menu-*.png                  選單列
+#   /tmp/fa-collapsed-*.png             收合模式（另有 -upcoming、-empty 變體）
+#   /tmp/fa-permission|failed|writefail-*.png  缺權限、讀取失敗、勾選寫入失敗
+#   /tmp/fa-char-<心情>-*.png           角色模式四種心情
+#   /tmp/fa-char-bubble-*.png           角色 ＋ 對話泡泡
+#   /tmp/fa-char-expanded-*.png         角色展開成卡片
+#   /tmp/fa-char-sprites.png            內建角色的所有格子
+```
+
+### 設計原則
+
+1. **View 層不認識 store**（唯一例外是 `MenuBarView` 的篩選）。所有互動都是注入的
+   closure，`--snapshot` 傳空實作 → **結構上不可能寫入使用者資料**。
+2. **只有一個寫入點**：勾選完成走 `AgendaStore` 內唯一的漏斗，最後由 5 行的
+   `EventKitReminderWriter` 寫入，這是整個專案唯一碰 EventKit 寫入 API 的型別。
+   其餘所有 EventKit 與檔案存取都是唯讀。
+3. **純顯示的文字一律 `.allowsHitTesting(false)`**，否則會蓋住下層的 `WindowDragArea`
+   讓卡片拖不動。可點的列（行程、提醒、按鈕）才保留 hit testing。
 
 ## 設定項目（UserDefaults，domain `io.github.pito0713.floatingagenda`）
 
@@ -245,31 +279,31 @@ defaults delete io.github.pito0713.floatingagenda
 |-----|------|------|------|
 | `panelVisible` | Bool | `true` | 是否顯示懸浮卡片 |
 | `displayMode` | String | `full` | `full`／`collapsed`／`character`；不認得的值一律回 `full` |
-| `panelCollapsed` | Bool | `false` | **舊版遺留**。首次啟動新版時會轉成 `displayMode` 並保留不刪（方便退回舊版），之後新程式碼只讀寫 `displayMode` |
-| `characterSkinID` | String | `builtin.pixel` | 選用的角色皮膚。外部皮膚是 `skin.<資料夾名稱>`；找不到就退回內建角色 |
-| `showBubble` | Bool | `true` | 角色模式要不要顯示對話泡泡 |
-| `characterTopRightX` / `characterTopRightY` | Double | 無 | 角色模式的面板**右上角**，與卡片的位置分開存。兩個缺一即視為沒有記錄 |
 | `opacity` | Double | `1.0` | 透明度，讀寫都夾限在 0.3–1.0 |
 | `hiddenCalendarIDs` | [String] | `[]` | **被隱藏的**行事曆 ID（所以新增的行事曆預設顯示） |
 | `hiddenReminderListIDs` | [String] | `[]` | 被隱藏的提醒清單 ID |
+| `showProjectTicker` | Bool | `true` | 是否顯示專案輪播 |
+| `showBubble` | Bool | `true` | 角色模式要不要顯示對話泡泡 |
+| `characterSkinID` | String | `builtin.pixel` | 選用的角色皮膚。外部皮膚是 `skin.<資料夾名稱>`；找不到就退回內建角色 |
 | `panelTopLeftX` / `panelTopLeftY` | Double | 無 | 卡片左上角座標，兩者缺一即視為沒有記錄 |
+| `characterBottomRightX` / `characterBottomRightY` | Double | 無 | 角色模式小精靈的**右下角**，與卡片的位置分開存 |
+| `characterTopRightX` / `characterTopRightY` | Double | 無 | **舊版遺留**。第一次啟動新版時換算成 `characterBottomRight`，保留不刪 |
+| `panelCollapsed` | Bool | `false` | **舊版遺留**。第一次啟動新版時轉成 `displayMode`，保留不刪（方便退回舊版） |
 
 ## 專案結構
 
 ```
-Floating/
-├── PLAN.md                  需求正本（§4 功能規格、§5 技術設計、§7 驗收、§4.9 後續項目）
-├── VERIFICATION.md          驗證計畫（四道關卡的定義）＋ M0–M8 結果總表
-├── README.md                本檔
+FloatingAgenda/
+├── README.md
+├── VERIFICATION.md          開發時的驗證流程（四道關卡）與各里程碑結果總表
 ├── Package.swift            SwiftPM，macOS 15+，零第三方依賴
 ├── Resources/Info.plist     LSUIElement、bundle id、4 個權限說明
 ├── scripts/
 │   ├── build.sh             swift build → 組 .app → ad-hoc 簽章
 │   └── install.sh           關舊行程 → 複製到 ~/Applications → 啟動
-├── docs/verification/       M0–M8 每個里程碑的逐條驗證紀錄
-├── docs/code-review-*.md    全專案 code review 報告
-├── Tests/FloatingAgendaTests/  76 個單元測試（純函式、設定層、勾選路徑）
-└── Sources/FloatingAgenda/  約 2,250 行
+├── docs/verification/       每個里程碑的逐條驗證紀錄
+├── Tests/FloatingAgendaTests/
+└── Sources/FloatingAgenda/  約 5,800 行
 ```
 
 ### Sources/FloatingAgenda
@@ -277,40 +311,41 @@ Floating/
 | 檔案 | 職責 |
 |------|------|
 | `Entry.swift` | `@main`。先看 `--dump` / `--snapshot` / `--help`，都沒有才啟動 App |
-| `FloatingAgendaApp.swift` | SwiftUI `App` ＋ `MenuBarExtra`。scene body 讀 store，所以清單變動時選單會更新 |
-| `AppDelegate.swift` | 建立 `PanelController`、依設定決定是否顯示、啟動 `AgendaStore` |
+| `FloatingAgendaApp.swift` | SwiftUI `App` ＋ `MenuBarExtra` |
+| `AppDelegate.swift` | 建立 `PanelController`、依設定決定是否顯示、啟動各個 store |
 | **Panel/** | |
 | `FloatingPanel.swift` | `NSPanel` 子類（borderless ＋ nonactivating ＋ `.floating`）＋ `FirstMouseHostingView` |
-| `PanelController.swift` | 顯示／隱藏、高度同步（上緣不動）、位置記憶、透明度、螢幕配置變更救援。另含 `PanelMetrics` 與 `PanelRootView` |
-| `WidgetBackground.swift` | `NSVisualEffectView` ＋ 圓角遮罩（`maskImage`，capInsets 取 2× 半徑） |
+| `PanelController.swift` | 顯示／隱藏、三種模式的錨點與尺寸同步、位置記憶、透明度、螢幕配置變更救援 |
+| `WidgetBackground.swift` | `NSVisualEffectView` ＋ 圓角遮罩 |
 | `WindowDragArea.swift` | 覆寫 `mouseDown` 呼叫 `performDrag` 的拖曳層 |
 | **Data/** | |
-| `AgendaStore.swift` | EventKit 權限與讀取、變更監聽、篩選、開啟原生 App、**唯一的寫入點**（勾選完成） |
-| `Models.swift` | `EventItem` / `ReminderItem` / `CalendarInfo` / `SectionState`，全部是值型別 |
-| `AppSettings.swift` | UserDefaults 包裝（可見性、收合、透明度、隱藏 ID、面板位置） |
+| `AgendaStore.swift` | EventKit 權限與讀取、變更監聽、篩選、開啟原生 App、勾選完成的漏斗 |
+| `ReminderWriter.swift` | 勾選寫入的 protocol 與 production 實作（唯一碰寫入 API 的地方） |
+| `Models.swift` | `EventItem` / `ReminderItem` / `CalendarInfo` / `SectionState` 等值型別 |
+| `AppSettings.swift` | UserDefaults 包裝與舊設定遷移 |
+| `SessionParser.swift` | `latest.md` → `ProjectItem`，純函式 |
+| `ProjectStore.swift` | 唯讀掃描 `~/.agent-sessions`，60 秒與喚醒時重讀 |
+| `ProjectTicker.swift` | 專案輪播的內容與換頁 |
+| **Character/** | |
+| `Mood.swift` | 心情判定（純函式） |
+| `PixelSprite.swift` / `BuiltinCharacter.swift` | 用字元格定義的內建像素角色 |
+| `Skin.swift` | 皮膚型別與 `SkinLoader`（外部皮膚的載入與驗證） |
+| `CharacterAnimation.swift` | 逐格、眨眼、彈跳的純計算 |
+| `CharacterHostView.swift` | 正式 App 裡的小精靈：NSView 自己繪圖、計時、處理點擊與拖曳 |
+| `CharacterView.swift` | 小精靈的靜態畫面，只給 `--snapshot` 用 |
+| `BubbleComposer.swift` / `BubbleView.swift` | 對話泡泡的輪播清單與畫面 |
 | **Views/** | |
-| `WidgetView.swift` | 卡片根視圖，分派完整／收合模式，右上角收合圖示 |
+| `WidgetView.swift` | 卡片根視圖，分派完整／收合模式 |
 | `HeaderView.swift` | 紅色星期 ＋ 粗體日期 |
-| `EventsSection.swift` | 完整模式的行程區（6 筆上限、「還有 N 個」） |
-| `RemindersSection.swift` | 完整模式的提醒區（6 筆上限、勾選、錯誤行） |
-| `CollapsedCardView.swift` | 收合模式的兩列（進行中的行程 ＋ 第一筆提醒），字級放大 1.25 倍 |
+| `EventsSection.swift` / `RemindersSection.swift` | 行程區與提醒區 |
+| `CollapsedCardView.swift` | 收合模式的兩列 |
+| `ProjectsSection.swift` / `ProjectCardView.swift` | 專案輪播與單一專案卡片（兩種模式共用） |
 | `PermissionPrompt.swift` | 「需要 X 存取權限」＋「打開系統設定」 |
-| `MenuBarView.swift` | 選單列：顯示開關、透明度滑桿、依來源分組的篩選、重新整理、結束 |
+| `MenuBarView.swift` / `MenuBarIcon.swift` | 選單列內容與巫師帽圖示 |
 | **Support/** | |
-| `Formatting.swift` | 日期／時間／到期文字、逾期判定。跟隨系統的 12/24 小時制與 Locale |
+| `Formatting.swift` | 日期／時間／到期文字、逾期判定，跟隨系統的 12/24 小時制與 Locale |
 | **Dev/** | |
-| `DevDump.swift` | `--dump`，唯讀 |
-| `DevSnapshot.swift` | `--snapshot`，用 mock 出 10 張 PNG |
-| `MockData.swift` | 假資料與各種狀態變體 |
-
-### 三個貫穿整個專案的設計原則
-
-1. **View 層不認識 `AgendaStore`**（唯一例外是 `MenuBarView` 的篩選）。所有互動都是注入的
-   closure，`--snapshot` 傳空實作 → **結構上不可能寫入使用者資料**。
-2. **只有一個寫入點**：`AgendaStore.commitCompletion`，private，唯一呼叫端是可被取消的
-   1.2 秒 Task，進入時再確認本地標記仍成立。其餘所有 EventKit 呼叫都是唯讀。
-3. **純顯示的文字一律 `.allowsHitTesting(false)`**，否則會蓋住下層的 `WindowDragArea`
-   讓卡片拖不動。可點的列（行程、提醒、按鈕）才保留 hit testing。
+| `DevDump.swift` / `DevSnapshot.swift` / `MockData.swift` | `--dump`、`--snapshot` 與假資料 |
 
 ## 版本紀錄
 
