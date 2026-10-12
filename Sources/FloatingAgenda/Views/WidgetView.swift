@@ -28,6 +28,12 @@ struct WidgetView: View {
     var projectsState: SectionState<ProjectItem>?
     /// 輪播要不要跑。面板隱藏、螢幕睡眠、snapshot 傳 false
     var projectsAreAnimating = true
+    /// 提醒區與專案區之間的排程區（使用者 2026-10-12 要求）。
+    /// 規則同 `projectsState`：完整模式與角色模式展開後共用，其他情況傳 nil
+    var schedulesState: SectionState<ScheduleItem>?
+    var onOpenSchedule: (ScheduleItem) -> Void = { _ in }
+    /// 有設定點擊指令的排程 Label，見 `SchedulesSection.actionableIDs`
+    var actionableScheduleIDs: Set<String> = []
     /// 角色模式展開時，標題列最左邊放一個 24pt 的小精靈，點它收回（§4.5）
     var characterMood: Mood?
     /// 標題列那隻 24pt 小精靈要用哪個皮膚（M9 計畫 §4.6）
@@ -86,6 +92,9 @@ struct WidgetView: View {
             // 「有沒有專案」——專案區兩個模式都有，那不是這兩個排版的差別
             VStack(alignment: .leading, spacing: 10) {
                 fixedSections
+                if let schedulesState {
+                    schedulesSection(schedulesState)
+                }
                 if let projectsState {
                     projectsSection(projectsState, showsStatusNotes: true)
                 }
@@ -117,6 +126,11 @@ struct WidgetView: View {
                                  onToggle: onToggleReminder,
                                  onOpen: onOpenReminder,
                                  onOpenSettings: onOpenReminderSettings)
+                // 排程區與專案區一樣是同一層的兄弟節點，nil 或沒有排程時整塊不存在，
+                // 上面「逐位元組不變」的保證照樣成立
+                if let schedulesState {
+                    schedulesSection(schedulesState)
+                }
                 if let projectsState {
                     // 角色模式展開後是同一個 View，只差在讀不到資料時說不說話
                     projectsSection(projectsState, showsStatusNotes: false)
@@ -131,6 +145,13 @@ struct WidgetView: View {
                         isAnimating: projectsAreAnimating,
                         showsStatusNotes: showsStatusNotes,
                         onOpen: onOpenProject)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func schedulesSection(_ state: SectionState<ScheduleItem>) -> some View {
+        SchedulesSection(state: state, now: now,
+                         actionableIDs: actionableScheduleIDs,
+                         onOpen: onOpenSchedule)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

@@ -54,6 +54,8 @@ final class AppSettings {
         static let showBubble = "showBubble"
         static let characterSkinID = "characterSkinID"
         static let showProjectTicker = "showProjectTicker"
+        static let showSchedules = "showSchedules"
+        static let scheduleOpenCommands = "scheduleOpenCommands"
     }
 
     private let defaults: any SettingsStore
@@ -65,6 +67,7 @@ final class AppSettings {
             Key.opacity: 1.0,
             Key.showBubble: true,
             Key.showProjectTicker: true,
+            Key.showSchedules: true,
         ])
         Self.migrateDisplayMode(in: defaults)
     }
@@ -133,6 +136,36 @@ final class AppSettings {
     var showProjectTicker: Bool {
         get { defaults.bool(forKey: Key.showProjectTicker) }
         set { defaults.set(newValue, forKey: Key.showProjectTicker) }
+    }
+
+    /// 卡片要不要顯示自己設的 launchd 排程（使用者 2026-10-12 要求）。
+    /// 預設開，理由同 `showProjectTicker`：沒有 `local.` 排程的人本來就看不到那一塊
+    var showSchedules: Bool {
+        get { defaults.bool(forKey: Key.showSchedules) }
+        set { defaults.set(newValue, forKey: Key.showSchedules) }
+    }
+
+    /// 點排程列時要執行的指令，key 是排程的 Label（例如 `local.tw-stock-tracker.update`），
+    /// value 的第一個元素是執行檔的絕對路徑，其餘是參數。沒設的排程點了開 log。
+    ///
+    /// 每個排程各自一條（使用者 2026-10-12 要求）：原本是標題列一顆共用的「排程資料」按鈕，
+    /// 排程一多就只能接一個功能。
+    ///
+    /// **刻意只能用 `defaults write` 設定、不寫死在程式碼裡**：指令指向使用者自己的
+    /// 腳本（例如台股儀表板的 `open_dashboard.py`），別人的機器上沒有那支檔案。
+    /// 不是絕對路徑的那一條直接丟掉——`Process` 不會幫你找 PATH
+    var scheduleOpenCommands: [String: [String]] {
+        get {
+            guard let raw = defaults.object(forKey: Key.scheduleOpenCommands) as? [String: Any] else {
+                return [:]
+            }
+            return raw.compactMapValues { value in
+                guard let command = value as? [String],
+                      command.first?.hasPrefix("/") == true else { return nil }
+                return command
+            }
+        }
+        set { defaults.set(newValue, forKey: Key.scheduleOpenCommands) }
     }
 
     /// 角色模式要不要顯示對話泡泡（M9 計畫 §4.4）。關掉只剩小精靈，心情照樣會變

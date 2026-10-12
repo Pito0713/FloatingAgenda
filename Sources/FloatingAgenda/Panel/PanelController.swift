@@ -108,6 +108,7 @@ struct PanelRootView: View {
     var characterMenu: () -> NSMenu? = { nil }
     private let store = AgendaStore.shared
     private let projects = ProjectStore.shared
+    private let schedules = ScheduleStore.shared
     private let settings = AppSettings.shared
 
     /// 輪播用。滑鼠停在泡泡上時暫停（§4.2）
@@ -162,6 +163,45 @@ struct PanelRootView: View {
             ? projects.state : nil
     }
 
+    /// 排程區：完整模式，以及角色模式展開後（兩邊畫的是同一個 `SchedulesSection`）。
+    /// 收合模式只剩兩列、角色模式待機只有小精靈，都放不下。
+    /// 抽成 static 純函式的理由同 `showsProjectTicker`
+    static func showsSchedules(mode: DisplayMode, expanded: Bool, enabled: Bool) -> Bool {
+        enabled && (mode == .full || (mode == .character && expanded))
+    }
+
+    private var visibleSchedulesState: SectionState<ScheduleItem>? {
+        Self.showsSchedules(mode: mode, expanded: isExpanded, enabled: settings.showSchedules)
+            ? schedules.state : nil
+    }
+
+    /// 點排程列：有設定指令就跑指令（例如台股儀表板），否則開 log。
+    /// 有 log 開 log（交給系統預設的程式，通常是「終端機」或「Console」）。
+    /// log 是空的就在 Finder 選取它——腳本常把真正的內容寫到同資料夾的別的檔案
+    /// （台股排程的 launchd.log 是空的，內容在 update-YYYYMMDD.log，使用者 2026-10-12 回報）。
+    /// 沒有 log 就在 Finder 選取 plist
+    private func openSchedule(_ item: ScheduleItem) {
+        if let command = scheduleCommands[item.id] {
+            ScheduleCommandLauncher.run(command)
+        } else if let log = item.logURL,
+           let size = (try? log.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+            if size > 0 {
+                NSWorkspace.shared.open(log)
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting([log])
+            }
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([item.plistURL])
+        }
+    }
+
+    /// 點擊指令。執行檔不存在的那一條當作沒設定，點了退回開 log，而不是點了沒反應
+    private var scheduleCommands: [String: [String]] {
+        settings.scheduleOpenCommands.filter {
+            FileManager.default.isExecutableFile(atPath: $0.value[0])
+        }
+    }
+
     private var mood: Mood {
         Mood.decide(reminders: store.remindersState, projects: projects.state, now: Date())
     }
@@ -178,6 +218,9 @@ struct PanelRootView: View {
                    onToggleCollapsed: onToggleCollapsed,
                    projectsState: visibleProjectTickerState,
                    projectsAreAnimating: isAnimating,
+                   schedulesState: visibleSchedulesState,
+                   onOpenSchedule: { openSchedule($0) },
+                   actionableScheduleIDs: Set(scheduleCommands.keys),
                    onOpenProject: { NSWorkspace.shared.open($0.fileURL) },
                    onOpenEvent: { store.openInCalendar($0) },
                    onToggleReminder: { store.toggleCompletion($0) },
@@ -270,6 +313,9 @@ struct PanelRootView: View {
                    background: .blur,
                    projectsState: visibleProjectsState,
                    projectsAreAnimating: isAnimating,
+                   schedulesState: visibleSchedulesState,
+                   onOpenSchedule: { openSchedule($0) },
+                   actionableScheduleIDs: Set(scheduleCommands.keys),
                    characterMood: mood,
                    characterSkin: skin,
                    onCollapseToCharacter: onToggleExpanded,
@@ -528,6 +574,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     @objc private func refreshFromMenu() {
         AgendaStore.shared.refresh()
         ProjectStore.shared.refresh()
+        ScheduleStore.shared.refresh()
     }
 
     @objc private func switchToFullFromMenu() {

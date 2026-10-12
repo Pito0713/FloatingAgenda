@@ -5,6 +5,8 @@ struct MenuBarView: View {
     /// 資料由外部傳入，`--snapshot` 才能用 mock 渲染這個選單
     var calendars: [CalendarInfo]
     var reminderLists: [CalendarInfo]
+    /// 自己設的排程，用來設定每一列點了要執行什麼。snapshot 用 mock
+    var schedules: [ScheduleItem] = []
     /// snapshot 模式傳 nil：沒有面板可以操作
     var delegate: AppDelegate?
     /// `ImageRenderer` 畫不出 ScrollView 的內容，snapshot 時傳 false 直接攤平渲染
@@ -48,6 +50,21 @@ struct MenuBarView: View {
                     get: { settings.showProjectTicker },
                     set: { newValue in
                         settings.showProjectTicker = newValue
+                        delegate?.panelController?.reloadPanelContent()
+                        revision += 1
+                    }
+                ))
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+            }
+
+            // 排程區只在完整模式與角色模式展開後出現（`PanelRootView.showsSchedules`）；
+            // 收合模式看不到，就不顯示這個開關
+            if (delegate?.panelController?.displayMode ?? settings.displayMode) != .collapsed {
+                Toggle("顯示排程", isOn: Binding(
+                    get: { settings.showSchedules },
+                    set: { newValue in
+                        settings.showSchedules = newValue
                         delegate?.panelController?.reloadPanelContent()
                         revision += 1
                     }
@@ -101,9 +118,17 @@ struct MenuBarView: View {
                 filterSections
             }
 
+            if settings.showSchedules, !schedules.isEmpty {
+                Divider()
+                scheduleActionsSection
+            }
+
             Divider()
 
-            Button("重新整理") { store.refresh() }
+            Button("重新整理") {
+                store.refresh()
+                ScheduleStore.shared.refresh()
+            }
             Button("結束 FloatingAgenda") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
         }
@@ -169,6 +194,68 @@ struct MenuBarView: View {
             }
         }
         .onAppear { delegate?.panelController?.reloadSkins() }
+    }
+
+    /// 每個排程點了要執行什麼（使用者 2026-10-12 要求，取代手打 `defaults write`）。
+    ///
+    /// 只能**選一個檔案**，指令由副檔名推出來（`ScheduleCommand.command(forFile:)`）：
+    /// 不提供自由輸入的指令列，免得選單變成一個可以跑任意 shell 字串的地方
+    private var scheduleActionsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("排程點擊動作")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            ForEach(schedules) { item in
+                let command = settings.scheduleOpenCommands[item.id]
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    HStack(spacing: 6) {
+                        Text(command.map(ScheduleCommand.summary) ?? "點了開 log")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(command?.joined(separator: " ") ?? "")
+                        Spacer(minLength: 4)
+                        Button("選擇…") { chooseCommand(for: item, current: command) }
+                            .controlSize(.small)
+                        if command != nil {
+                            Button("清除") { setCommand(nil, for: item) }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func chooseCommand(for item: ScheduleItem, current: [String]?) {
+        let panel = NSOpenPanel()
+        panel.title = "選擇「\(item.name)」點了要開的檔案"
+        panel.message = "腳本（.py／.sh）會在背景執行；其他檔案用預設的 App 打開"
+        panel.prompt = "選擇"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.treatsFilePackagesAsDirectories = false
+        if let path = current?.last {
+            panel.directoryURL = URL(fileURLWithPath: path).deletingLastPathComponent()
+        }
+        // accessory App 不先 activate 的話，選檔視窗會開在其他 App 後面
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setCommand(ScheduleCommand.command(forFile: url), for: item)
+    }
+
+    private func setCommand(_ command: [String]?, for item: ScheduleItem) {
+        var commands = settings.scheduleOpenCommands
+        commands[item.id] = command
+        settings.scheduleOpenCommands = commands
+        delegate?.panelController?.reloadPanelContent()
+        revision += 1
     }
 
     private var filterSections: some View {

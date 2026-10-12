@@ -150,6 +150,27 @@ enum MockData {
         ]
     }
 
+    /// 排程區用：失敗、執行中、正常、未載入各一個
+    static func schedules() -> [ScheduleItem] {
+        let weekdays = ScheduleTrigger.calendar((1...5).map {
+            CalendarSlot(weekday: $0, hour: 16, minute: 30)
+        })
+        func item(_ name: String, _ trigger: ScheduleTrigger,
+                  _ run: ScheduleRunState) -> ScheduleItem {
+            ScheduleItem(id: "local.\(name)", name: name, trigger: trigger, run: run,
+                         logURL: nil,
+                         plistURL: URL(fileURLWithPath: "/tmp/local.\(name).plist"))
+        }
+        return [
+            item("backup.nightly", .calendar([CalendarSlot(hour: 2, minute: 0)]),
+                 .idle(lastExit: 1)),
+            item("stock-tracker.update", weekdays, .running(pid: 4242)),
+            item("notes.sync", .interval(3600), .idle(lastExit: 0)),
+            item("photos.export", .calendar([CalendarSlot(weekday: 0, hour: 9, minute: 0)]),
+                 .notLoaded),
+        ]
+    }
+
     static func reminderLists() -> [CalendarInfo] {
         [
             CalendarInfo(id: "r1", title: "每日清單", sourceTitle: "iCloud",

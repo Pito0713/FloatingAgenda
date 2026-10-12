@@ -14,5 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await AgendaStore.shared.start() }
         // 專案進度：唯讀掃描 ~/.agent-sessions，60 秒重讀（M9 計畫 §5.2）
         ProjectStore.shared.start()
+        // 自己設的 launchd 排程：唯讀，60 秒重讀
+        ScheduleStore.shared.start()
     }
 }

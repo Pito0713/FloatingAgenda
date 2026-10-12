@@ -72,6 +72,9 @@ enum DevDump {
         printProjects(projects.state)
         print("")
 
+        printSchedules()
+        print("")
+
         printSkins()
 
         return 0
@@ -93,6 +96,26 @@ enum DevDump {
         }
         if result.skins.isEmpty && result.rejected.isEmpty {
             print("  （沒有外部皮膚）")
+        }
+    }
+
+    /// `== Schedules ==`：`~/Library/LaunchAgents` 裡 `local.` 開頭的排程。
+    /// 直接同步掃描，不經過 `ScheduleStore` 的非同步重讀
+    private static func printSchedules() {
+        print("== Schedules ==")
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+        let now = Date()
+        let state = ScheduleStore.scan(directory: directory, now: now,
+                                       runState: ScheduleStore.launchctlRunState)
+        guard case .loaded(let items, _) = state, !items.isEmpty else {
+            print("  （沒有 \(LaunchSchedule.labelPrefix) 開頭的排程）")
+            return
+        }
+        for item in items {
+            print("  · \(item.id) | \(Formatting.scheduleDetail(for: item, now: now))")
+            print("      plist=\(item.plistURL.path)")
+            if let log = item.logURL { print("      log=\(log.path)") }
         }
     }
 

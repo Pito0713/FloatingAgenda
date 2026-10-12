@@ -4,11 +4,18 @@ import SwiftUI
 struct FloatingAgendaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let store = AgendaStore.shared
+    private let scheduleStore = ScheduleStore.shared
+
+    private var schedules: [ScheduleItem] {
+        if case .loaded(let items, _) = scheduleStore.state { return items }
+        return []
+    }
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(calendars: store.calendars,
                         reminderLists: store.reminderLists,
+                        schedules: schedules,
                         delegate: appDelegate)
         } label: {
             MenuBarIconLabel()

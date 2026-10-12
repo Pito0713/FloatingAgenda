@@ -135,6 +135,28 @@ enum DevSnapshot {
             guard writePNG(tickerImage, scale: 2, to: tickerPath) else { return 1 }
             print("✅ \(tickerPath)  \(tickerImage.width)×\(tickerImage.height)px")
 
+            // 完整卡片 ＋ 排程區（使用者 2026-10-12 要求）。
+            // 另外輸出一張，理由同上面的專案輪播：主圖要逐位元組不變
+            let schedules = WidgetView(eventsState: .loaded(items: events, total: events.count),
+                                       remindersState: .loaded(items: reminders,
+                                                               total: reminders.count),
+                                       background: .opaque,
+                                       now: MockData.referenceDate(),
+                                       schedulesState: .loaded(items: MockData.schedules(),
+                                                               total: MockData.schedules().count),
+                                       // 讓一列畫出「有點擊指令」的箭頭；snapshot 不執行任何指令
+                                       actionableScheduleIDs: ["local.stock-tracker.update"])
+                .frame(width: PanelMetrics.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .environment(\.colorScheme, item.scheme)
+            guard let schedulesImage = render(schedules, appearance: appearance) else {
+                fail("ImageRenderer 產不出排程區的卡片")
+                return 1
+            }
+            let schedulesPath = "\(prefix)-schedules-\(item.suffix).png"
+            guard writePNG(schedulesImage, scale: 2, to: schedulesPath) else { return 1 }
+            print("✅ \(schedulesPath)  \(schedulesImage.width)×\(schedulesImage.height)px")
+
             // 選單列（PLAN §4.5）。delegate 傳 nil → 沒有面板可操作，純渲染
             let menu = MenuBarView(calendars: MockData.calendars(),
                                    reminderLists: MockData.reminderLists(),
@@ -159,6 +181,23 @@ enum DevSnapshot {
             let menuPath = "\(prefix)-menu-\(item.suffix).png"
             guard writePNG(menuCG, scale: 2, to: menuPath) else { return 1 }
             print("✅ \(menuPath)  \(menuCG.width)×\(menuCG.height)px")
+
+            // 選單列 ＋ 排程點擊動作。另外輸出一張，上面那張選單圖維持不變
+            let scheduleMenu = MenuBarView(calendars: MockData.calendars(),
+                                           reminderLists: MockData.reminderLists(),
+                                           schedules: MockData.schedules(),
+                                           delegate: nil,
+                                           scrollable: false)
+                .fixedSize()
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, item.scheme)
+            guard let scheduleMenuImage = render(scheduleMenu, appearance: appearance) else {
+                fail("ImageRenderer 產不出排程點擊動作的選單圖")
+                return 1
+            }
+            let scheduleMenuPath = "\(prefix)-menu-schedules-\(item.suffix).png"
+            guard writePNG(scheduleMenuImage, scale: 2, to: scheduleMenuPath) else { return 1 }
+            print("✅ \(scheduleMenuPath)  \(scheduleMenuImage.width)×\(scheduleMenuImage.height)px")
 
             // 角色模式：四種心情各一張（M9 計畫 §5.7）。
             // 固定在第 0 格，輸出才可重現

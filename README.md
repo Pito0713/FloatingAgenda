@@ -20,6 +20,7 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 | 互動 | 點行程開行事曆 App、點提醒標題開提醒事項 App、點圓圈勾選完成（1.2 秒內可取消） |
 | 面板 | 固定寬 320pt、高度隨內容伸縮且上緣不動、可拖曳且記住位置、透明度 30–100% |
 | 專案 | 卡片最下面一次顯示**一個**專案（名稱、燈號、進度條、更新時間、卡住的點、待辦），每 8 秒換下一個，滑鼠停住暫停，點名稱開該專案的 `latest.md`。沒有交接紀錄的話整塊不會出現 |
+| 排程 | 自己設的 launchd 排程（`~/Library/LaunchAgents` 裡 Label 以 **`local.`** 開頭的），一個一列：燈號（藍＝執行中、紅＝上次失敗、綠＝正常、灰＝未載入）、觸發規則（「平日 16:30」）、下次執行時間。點一列執行該排程設定的指令（在選單列「排程點擊動作」選一個檔案，例如資料儀表板的腳本），沒設定就開 log。完整模式與角色模式展開後才有，沒有排程時整塊不出現。**唯讀**，只跑 `launchctl print` |
 | 選單列 | 顯示開關、透明度滑桿、依來源分組的行事曆與清單篩選、「顯示專案待辦」開關、重新整理、結束 |
 | 收合 | 右上角圖示可收合成兩列：行程（標題顯示「正在進行中」或「即將到來」）＋ 第一筆提醒，字級放大 1.25 倍。狀態會記住 |
 
@@ -247,6 +248,8 @@ defaults delete io.github.pito0713.floatingagenda
 | `displayMode` | String | `full` | `full`／`collapsed`／`character`；不認得的值一律回 `full` |
 | `panelCollapsed` | Bool | `false` | **舊版遺留**。首次啟動新版時會轉成 `displayMode` 並保留不刪（方便退回舊版），之後新程式碼只讀寫 `displayMode` |
 | `characterSkinID` | String | `builtin.pixel` | 選用的角色皮膚。外部皮膚是 `skin.<資料夾名稱>`；找不到就退回內建角色 |
+| `showSchedules` | Bool | `true` | 卡片要不要顯示排程區 |
+| `scheduleOpenCommands` | [String: [String]] | 無 | 點排程列時要執行的指令，key 是排程的 Label，value 是「執行檔絕對路徑 ＋ 參數」。有設定的列右邊會有箭頭；沒設定的點了開 log。從選單列「排程點擊動作」選檔案設定（.py 用 python3、.sh 用 bash 在背景執行，其他檔案用預設 App 打開），也可以用 `defaults write`，例如 `defaults write io.github.pito0713.floatingagenda scheduleOpenCommands -dict-add local.tw-stock-tracker.update '("/usr/bin/python3", "/path/to/open_dashboard.py")'` |
 | `showBubble` | Bool | `true` | 角色模式要不要顯示對話泡泡 |
 | `characterTopRightX` / `characterTopRightY` | Double | 無 | 角色模式的面板**右上角**，與卡片的位置分開存。兩個缺一即視為沒有記錄 |
 | `opacity` | Double | `1.0` | 透明度，讀寫都夾限在 0.3–1.0 |
@@ -316,6 +319,7 @@ Floating/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.12.3 | 2026-10-12 | 排程區 | 卡片新增排程區：`~/Library/LaunchAgents` 裡 Label 以 `local.` 開頭的 launchd 排程，一個一列顯示燈號（執行中／上次失敗／正常／未載入）、觸發規則與下次執行時間，只讀 plist 與 `launchctl print`。點一列執行該排程設定的指令（選單列「排程點擊動作」選檔案，.py／.sh 在背景執行、其他檔案用預設 App 開），沒設定就開 log（空 log 改在 Finder 選取）。選單列新增「顯示排程」開關；`--dump` 新增 Schedules 區段、`--snapshot` 新增 schedules 與 menu-schedules 兩組圖。測試 348 → 370。完整與收合模式的既有 snapshot 逐位元組不變 |
 | 0.12.2 | 2026-09-29 | 專案輪播 | 完整模式的卡片最下面新增專案區（原本只有角色模式展開後才看得到），一次顯示一個專案、每 8 秒換下一個、滑鼠停住暫停、點名稱開 `latest.md`；角色模式展開後原本的「攤開 4 張卡 ＋ 捲動」一併改成同一套輪播，兩個模式共用 `ProjectCardView`。卡片固定 90pt 以免換頁時面板上下跳（實測真實資料落差 98pt），列得下幾項待辦是先算再少列。選單列新增「顯示專案待辦」開關。完整與收合模式的 snapshot 與前一版逐位元組相同 |
 | 0.12.1 | 2026-09-29 | 選單列 icon | 改用 07 垂星巫師帽向量模板；保留忙碌／逾期狀態點，支援深淺色選單列；6 項 icon 測試通過 |
 | 0.12.0 | 2026-09-22 | M9.5 皮膚擴充與交付 | 小精靈可以換成自己畫的：`~/Library/Application Support/FloatingAgenda/Skins/` 底下放 skin.json ＋ PNG，選單列「角色」下拉選單切換、「打開皮膚資料夾…」；不合格的皮膚不會出現在選單裡，`--dump` 的 Skins 區段會說明原因。M9 §7.1 十一條總驗收全部通過 |
