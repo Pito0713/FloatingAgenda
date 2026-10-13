@@ -20,12 +20,21 @@ final class CharacterHostViewTests: XCTestCase {
         return rep
     }
 
-    /// 把畫面上的某個點換算回格子座標（rep 的 y=0 是最上面那一列）
-    private func isOpaque(_ rep: NSBitmapImageRep, gridRow: Int, gridColumn: Int) -> Bool {
+    /// 格子座標 → rep 的像素座標（rep 的 y=0 是最上面那一列）。
+    ///
+    /// rep 的像素數跟著螢幕的 backing scale 走（Retina 是 2 倍），
+    /// 所以點座標要再乘上倍率，否則在 Retina 上會取樣到左上角的錯誤位置
+    private func pixel(_ rep: NSBitmapImageRep, gridRow: CGFloat, gridColumn: CGFloat) -> (x: Int, y: Int) {
         let scale = PanelMetrics.characterSize / CGFloat(PixelSprite.side)
-        let x = Int(PanelMetrics.characterPadding + (CGFloat(gridColumn) + 0.5) * scale)
-        let y = Int(PanelMetrics.characterPadding + (CGFloat(gridRow) + 0.5) * scale)
-        guard let color = rep.colorAt(x: x, y: y) else { return false }
+        let backing = CGFloat(rep.pixelsWide) / rep.size.width
+        let x = (PanelMetrics.characterPadding + (gridColumn + 0.5) * scale) * backing
+        let y = (PanelMetrics.characterPadding + (gridRow + 0.5) * scale) * backing
+        return (Int(x), Int(y))
+    }
+
+    private func isOpaque(_ rep: NSBitmapImageRep, gridRow: Int, gridColumn: Int) -> Bool {
+        let point = pixel(rep, gridRow: CGFloat(gridRow), gridColumn: CGFloat(gridColumn))
+        guard let color = rep.colorAt(x: point.x, y: point.y) else { return false }
         return color.alphaComponent > 0.5
     }
 
@@ -52,10 +61,8 @@ final class CharacterHostViewTests: XCTestCase {
     func testBodyUsesTheMoodColour() throws {
         for mood in Mood.allCases {
             let rep = try render(mood: mood)
-            let scale = PanelMetrics.characterSize / CGFloat(PixelSprite.side)
-            let x = Int(PanelMetrics.characterPadding + 8.5 * scale)
-            let y = Int(PanelMetrics.characterPadding + 4.5 * scale)
-            let color = try XCTUnwrap(rep.colorAt(x: x, y: y)).usingColorSpace(.sRGB)!
+            let point = pixel(rep, gridRow: 4, gridColumn: 8)
+            let color = try XCTUnwrap(rep.colorAt(x: point.x, y: point.y)).usingColorSpace(.sRGB)!
             let expected = mood.bodyColor.usingColorSpace(.sRGB)!
             XCTAssertEqual(color.redComponent, expected.redComponent, accuracy: 0.02,
                            "\(mood) 的身體顏色不對")
