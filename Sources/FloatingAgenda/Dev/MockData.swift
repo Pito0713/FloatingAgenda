@@ -150,6 +150,12 @@ enum MockData {
         ]
     }
 
+    /// 選單列快速啟動用：Terminal 開的 .command 一個、背景跑的腳本一個
+    static func quickLaunchItems() -> [QuickLaunchItem] {
+        [QuickLaunchItem(name: "swarmtide", command: ["/usr/bin/open", "/Users/me/tools/launchers/swarmtide.command"]),
+         QuickLaunchItem(name: "bg-remover", command: ["/usr/bin/open", "/Users/me/tools/bg-remover/start.command"])]
+    }
+
     /// 排程區用：失敗、執行中、正常、未載入各一個
     static func schedules() -> [ScheduleItem] {
         let weekdays = ScheduleTrigger.calendar((1...5).map {

@@ -53,6 +53,7 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 - 顯示懸浮窗開關、顯示模式（完整／收合／角色）、透明度滑桿
 - 顯示專案待辦、顯示排程、顯示對話泡泡
 - 排程點擊動作：替每個排程選一個點了要執行的檔案
+- 快速啟動：常用工具點一下就執行。「新增…」選檔案加入（.command 在終端機視窗執行，其他規則同排程點擊動作），每列可「執行」「移除」
 - 角色皮膚選擇、打開皮膚資料夾
 - 依來源分組的行事曆與提醒清單篩選
 - 重新整理、結束
@@ -299,6 +300,7 @@ build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 | `showProjectTicker` | Bool | `true` | 是否顯示專案輪播 |
 | `showSchedules` | Bool | `true` | 是否顯示排程區 |
 | `scheduleOpenCommands` | [String: [String]] | 無 | 點排程列時要執行的指令，key 是排程的 Label，value 是「執行檔絕對路徑 ＋ 參數」。通常從選單列「排程點擊動作」選檔案設定；要帶參數時用 `defaults write io.github.pito0713.floatingagenda scheduleOpenCommands -dict-add local.my-job '("/usr/bin/python3", "/path/to/script.py", "--flag")'` |
+| `quickLaunchItems` | [[String: Any]] | 無 | 選單列快速啟動的項目，照順序；每項是 `name`（String）＋ `command`（執行檔絕對路徑 ＋ 參數）。從選單列「快速啟動 → 新增…」選檔案加入 |
 | `showBubble` | Bool | `true` | 角色模式要不要顯示對話泡泡 |
 | `characterSkinID` | String | `builtin.pixel` | 選用的角色皮膚。外部皮膚是 `skin.<資料夾名稱>`；找不到就退回內建角色 |
 | `panelTopLeftX` / `panelTopLeftY` | Double | 無 | 卡片左上角座標，兩者缺一即視為沒有記錄 |
@@ -344,6 +346,7 @@ FloatingAgenda/
 | `ProjectTicker.swift` | 專案輪播的內容與換頁 |
 | `LaunchSchedule.swift` | launchd plist 與 `launchctl print` 的解析、下次執行時間，純函式 |
 | `ScheduleStore.swift` | 唯讀掃描 `~/Library/LaunchAgents`，60 秒與喚醒時重讀；排程點擊指令的組成與執行 |
+| `QuickLaunch.swift` | 選單列快速啟動的項目與「選了檔案要怎麼執行」 |
 | **Character/** | |
 | `Mood.swift` | 心情判定（純函式） |
 | `PixelSprite.swift` / `BuiltinCharacter.swift` | 用字元格定義的內建像素角色 |
@@ -359,6 +362,7 @@ FloatingAgenda/
 | `CollapsedCardView.swift` | 收合模式的兩列 |
 | `ProjectsSection.swift` / `ProjectCardView.swift` | 專案輪播與單一專案卡片（兩種模式共用） |
 | `SchedulesSection.swift` | 排程區 |
+| `QuickLaunchSection.swift` | 選單列「快速啟動」區塊 |
 | `PermissionPrompt.swift` | 「需要 X 存取權限」＋「打開系統設定」 |
 | `MenuBarView.swift` / `MenuBarIcon.swift` | 選單列內容與巫師帽圖示 |
 | **Support/** | |
@@ -370,6 +374,7 @@ FloatingAgenda/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.12.4 | 2026-10-27 | 快速啟動 | 選單列「排程點擊動作」下方新增「快速啟動」區塊：放沒有排程的常用工具，每列「執行」「移除」，底部「新增…」用選檔視窗加入（不提供自由輸入指令），名稱預設為檔名去掉副檔名，照新增順序存在 UserDefaults `quickLaunchItems`。`.command` 用 `open` 在終端機視窗執行（TUI 需要終端機），其他副檔名沿用排程點擊動作的規則；排程那邊的 `.command` 仍是背景 `/bin/bash`。`--snapshot` 新增 menu-quicklaunch 一組圖，既有 34 張 snapshot 逐位元組不變。測試 370 → 379 |
 | 0.12.3 | 2026-10-12 | 排程區 | 卡片新增排程區：`~/Library/LaunchAgents` 裡 Label 以 `local.` 開頭的 launchd 排程，一個一列顯示燈號（執行中／上次失敗／正常／未載入）、觸發規則與下次執行時間，只讀 plist 與 `launchctl print`。點一列執行該排程設定的指令（選單列「排程點擊動作」選檔案，.py／.sh 在背景執行、其他檔案用預設 App 開），沒設定就開 log（空 log 改在 Finder 選取）。選單列新增「顯示排程」開關；`--dump` 新增 Schedules 區段、`--snapshot` 新增 schedules 與 menu-schedules 兩組圖。測試 348 → 370。完整與收合模式的既有 snapshot 逐位元組不變 |
 | 0.12.2 | 2026-09-29 | 專案輪播 | 完整模式的卡片最下面新增專案區（原本只有角色模式展開後才看得到），一次顯示一個專案、每 8 秒換下一個、滑鼠停住暫停、點名稱開 `latest.md`；角色模式展開後原本的「攤開 4 張卡 ＋ 捲動」一併改成同一套輪播，兩個模式共用 `ProjectCardView`。卡片固定 90pt 以免換頁時面板上下跳（實測真實資料落差 98pt），列得下幾項待辦是先算再少列。選單列新增「顯示專案待辦」開關。完整與收合模式的 snapshot 與前一版逐位元組相同 |
 | 0.12.1 | 2026-09-29 | 選單列 icon | 改用 07 垂星巫師帽向量模板；保留忙碌／逾期狀態點，支援深淺色選單列；6 項 icon 測試通過 |

@@ -7,6 +7,8 @@ struct MenuBarView: View {
     var reminderLists: [CalendarInfo]
     /// 自己設的排程，用來設定每一列點了要執行什麼。snapshot 用 mock
     var schedules: [ScheduleItem] = []
+    /// 只給 snapshot 用的快速啟動假資料，實際 App 一律讀設定（見 `quickLaunchItems`）
+    var snapshotQuickLaunchItems: [QuickLaunchItem]?
     /// snapshot 模式傳 nil：沒有面板可以操作
     var delegate: AppDelegate?
     /// `ImageRenderer` 畫不出 ScrollView 的內容，snapshot 時傳 false 直接攤平渲染
@@ -123,6 +125,16 @@ struct MenuBarView: View {
                 scheduleActionsSection
             }
 
+            if let quickLaunchItems {
+                Divider()
+                QuickLaunchSection(
+                    items: quickLaunchItems,
+                    onRun: { ScheduleCommandLauncher.run($0.command) },
+                    onAdd: { settings.quickLaunchItems.append($0); revision += 1 },
+                    onRemove: { settings.quickLaunchItems.remove(at: $0); revision += 1 }
+                )
+            }
+
             Divider()
 
             Button("重新整理") {
@@ -230,6 +242,12 @@ struct MenuBarView: View {
                 }
             }
         }
+    }
+
+    /// 實際 App 讀設定；snapshot（沒有 delegate）只畫傳進來的假資料、沒傳就整塊不畫，
+    /// 選單圖才不會跟著跑 snapshot 那台機器的設定變
+    private var quickLaunchItems: [QuickLaunchItem]? {
+        delegate == nil ? snapshotQuickLaunchItems : settings.quickLaunchItems
     }
 
     private func chooseCommand(for item: ScheduleItem, current: [String]?) {

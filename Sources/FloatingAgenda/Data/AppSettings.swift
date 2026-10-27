@@ -56,6 +56,7 @@ final class AppSettings {
         static let showProjectTicker = "showProjectTicker"
         static let showSchedules = "showSchedules"
         static let scheduleOpenCommands = "scheduleOpenCommands"
+        static let quickLaunchItems = "quickLaunchItems"
     }
 
     private let defaults: any SettingsStore
@@ -166,6 +167,28 @@ final class AppSettings {
             }
         }
         set { defaults.set(newValue, forKey: Key.scheduleOpenCommands) }
+    }
+
+    /// 選單列「快速啟動」的項目，照使用者新增的順序（使用者 2026-10-27 要求）。
+    ///
+    /// 每一項存成 `["name": String, "command": [String]]`。與 `scheduleOpenCommands`
+    /// 一樣只能從選單選檔新增，不寫死在程式碼裡。壞掉的那一項（缺名稱、
+    /// 指令不是絕對路徑、型別不對）丟掉，其他項照常可用、順序不變
+    var quickLaunchItems: [QuickLaunchItem] {
+        get {
+            guard let raw = defaults.object(forKey: Key.quickLaunchItems) as? [Any] else { return [] }
+            return raw.compactMap { entry in
+                guard let dict = entry as? [String: Any],
+                      let name = dict["name"] as? String, !name.isEmpty,
+                      let command = dict["command"] as? [String],
+                      command.first?.hasPrefix("/") == true else { return nil }
+                return QuickLaunchItem(name: name, command: command)
+            }
+        }
+        set {
+            defaults.set(newValue.map { ["name": $0.name, "command": $0.command] as [String: Any] },
+                         forKey: Key.quickLaunchItems)
+        }
     }
 
     /// 角色模式要不要顯示對話泡泡（M9 計畫 §4.4）。關掉只剩小精靈，心情照樣會變

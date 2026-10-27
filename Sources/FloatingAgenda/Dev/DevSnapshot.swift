@@ -199,6 +199,23 @@ enum DevSnapshot {
             guard writePNG(scheduleMenuImage, scale: 2, to: scheduleMenuPath) else { return 1 }
             print("✅ \(scheduleMenuPath)  \(scheduleMenuImage.width)×\(scheduleMenuImage.height)px")
 
+            // 選單列 ＋ 快速啟動。另外輸出一張，上面兩張選單圖維持不變
+            let quickLaunchMenu = MenuBarView(calendars: MockData.calendars(),
+                                              reminderLists: MockData.reminderLists(),
+                                              snapshotQuickLaunchItems: MockData.quickLaunchItems(),
+                                              delegate: nil,
+                                              scrollable: false)
+                .fixedSize()
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, item.scheme)
+            guard let quickLaunchMenuImage = render(quickLaunchMenu, appearance: appearance) else {
+                fail("ImageRenderer 產不出快速啟動的選單圖")
+                return 1
+            }
+            let quickLaunchMenuPath = "\(prefix)-menu-quicklaunch-\(item.suffix).png"
+            guard writePNG(quickLaunchMenuImage, scale: 2, to: quickLaunchMenuPath) else { return 1 }
+            print("✅ \(quickLaunchMenuPath)  \(quickLaunchMenuImage.width)×\(quickLaunchMenuImage.height)px")
+
             // 角色模式：四種心情各一張（M9 計畫 §5.7）。
             // 固定在第 0 格，輸出才可重現
             for mood in Mood.allCases {
