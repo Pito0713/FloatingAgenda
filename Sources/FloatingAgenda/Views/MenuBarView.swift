@@ -22,6 +22,8 @@ struct MenuBarView: View {
     @State private var revision = 0
     /// 篩選區內容的自然高度，用來決定 ScrollView 要多高
     @State private var filterSectionsHeight: CGFloat = 0
+    /// 篩選區預設收起來：設一次就很少再動，攤開會把選單撐得很長（使用者 2026-10-28 回報）
+    @State private var filtersCollapsed = true
 
     var body: some View {
         // 讀取 revision 建立重繪依賴。**不要用 `.id(revision)`**——透明度滑桿拖曳時
@@ -95,14 +97,16 @@ struct MenuBarView: View {
 
             Divider()
 
-            // 行事曆與清單可能很多，兩個區段一起包在高度上限 320pt 的 ScrollView 裡。
+            filterHeader
+
+            // 行事曆與清單可能很多，兩個區段一起包在高度上限 240pt 的 ScrollView 裡。
             //
             // ⚠️ 一定要給**明確高度**，不能只用 `maxHeight`：
             // ScrollView 的理想高度接近 0，只給上限的話外層一擠它就縮成一條線，
             // 篩選區會變成一段被裁掉的文字（使用者 2026-09-23 回報，
             // M5 的使用者驗收第 2 項一直沒被驗到）。
-            // 先量內容的自然高度，再取 min(自然高度, 320)
-            if scrollable {
+            // 先量內容的自然高度，再取 min(自然高度, 240)
+            if filtersShown, scrollable {
                 ScrollView {
                     filterSections
                         // 內容要撐滿寬度，否則捲動條會貼在內容的右緣
@@ -114,15 +118,21 @@ struct MenuBarView: View {
                             filterSectionsHeight = height
                         }
                 }
-                .frame(height: min(max(filterSectionsHeight, 44), 320))
+                .frame(height: min(max(filterSectionsHeight, 44), 240))
                 .scrollIndicators(.automatic)
-            } else {
+            } else if filtersShown {
                 filterSections
             }
 
             if settings.showSchedules, !schedules.isEmpty {
                 Divider()
-                scheduleActionsSection
+                ScheduleActionsSection(
+                    schedules: schedules,
+                    commands: settings.scheduleOpenCommands,
+                    hiddenLabels: settings.hiddenScheduleLabels,
+                    onSetHidden: setScheduleHidden,
+                    onSetCommand: { setCommand($1, for: $0) }
+                )
             }
 
             if let quickLaunchItems {
@@ -137,12 +147,18 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button("重新整理") {
-                store.refresh()
-                ScheduleStore.shared.refresh()
+            // 兩顆放同一列，選單少一行（使用者 2026-10-28 回報選單太長）
+            HStack {
+                Button("重新整理") {
+                    store.refresh()
+                    ScheduleStore.shared.refresh()
+                }
+                Spacer()
+                Button("結束") { NSApplication.shared.terminate(nil) }
+                    .keyboardShortcut("q")
+                    .help("結束 FloatingAgenda")
             }
-            Button("結束 FloatingAgenda") { NSApplication.shared.terminate(nil) }
-                .keyboardShortcut("q")
+            .controlSize(.small)
         }
         .padding(14)
         .frame(width: 280, alignment: .leading)
@@ -208,72 +224,10 @@ struct MenuBarView: View {
         .onAppear { delegate?.panelController?.reloadSkins() }
     }
 
-    /// 每個排程點了要執行什麼（使用者 2026-10-12 要求，取代手打 `defaults write`），
-    /// 以及要不要顯示在卡片上（使用者 2026-10-28 要求：常駐型的排程不需要看）。
-    ///
-    /// 只能**選一個檔案**，指令由副檔名推出來（`ScheduleCommand.command(forFile:)`）：
-    /// 不提供自由輸入的指令列，免得選單變成一個可以跑任意 shell 字串的地方
-    private var scheduleActionsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("排程點擊動作（勾選的顯示在卡片上）")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            ForEach(schedules) { item in
-                let command = settings.scheduleOpenCommands[item.id]
-                VStack(alignment: .leading, spacing: 2) {
-                    Toggle(isOn: Binding(
-                        get: { !settings.hiddenScheduleLabels.contains(item.id) },
-                        set: { setScheduleHidden(item, !$0) }
-                    )) {
-                        Text(item.name)
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .toggleStyle(.checkbox)
-                    .controlSize(.small)
-                    HStack(spacing: 6) {
-                        Text(command.map(ScheduleCommand.summary) ?? "點了開 log")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(command?.joined(separator: " ") ?? "")
-                        Spacer(minLength: 4)
-                        Button("選擇…") { chooseCommand(for: item, current: command) }
-                            .controlSize(.small)
-                        if command != nil {
-                            Button("清除") { setCommand(nil, for: item) }
-                                .controlSize(.small)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// 實際 App 讀設定；snapshot（沒有 delegate）只畫傳進來的假資料、沒傳就整塊不畫，
     /// 選單圖才不會跟著跑 snapshot 那台機器的設定變
     private var quickLaunchItems: [QuickLaunchItem]? {
         delegate == nil ? snapshotQuickLaunchItems : settings.quickLaunchItems
-    }
-
-    private func chooseCommand(for item: ScheduleItem, current: [String]?) {
-        let panel = NSOpenPanel()
-        panel.title = "選擇「\(item.name)」點了要開的檔案"
-        panel.message = "腳本（.py／.sh）會在背景執行；其他檔案用預設的 App 打開"
-        panel.prompt = "選擇"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.treatsFilePackagesAsDirectories = false
-        if let path = current?.last {
-            panel.directoryURL = URL(fileURLWithPath: path).deletingLastPathComponent()
-        }
-        // accessory App 不先 activate 的話，選檔視窗會開在其他 App 後面
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setCommand(ScheduleCommand.command(forFile: url), for: item)
     }
 
     private func setScheduleHidden(_ item: ScheduleItem, _ hidden: Bool) {
@@ -292,6 +246,27 @@ struct MenuBarView: View {
         settings.scheduleOpenCommands = commands
         delegate?.panelController?.reloadPanelContent()
         revision += 1
+    }
+
+    /// snapshot 一律攤開：那張圖是用來檢查篩選區內容的
+    private var filtersShown: Bool { !scrollable || !filtersCollapsed }
+
+    /// 篩選區的標題列，點了展開／收起。收起時顯示隱藏了幾個，才知道卡片上少了東西
+    private var filterHeader: some View {
+        let hiddenCount = (calendars + reminderLists).filter(\.isHidden).count
+        return Button { filtersCollapsed.toggle() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(filtersShown ? 90 : 0))
+                MenuSectionHeader(title: "行事曆與提醒篩選",
+                                  note: hiddenCount > 0 ? "已隱藏 \(hiddenCount) 個" : nil)
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var filterSections: some View {

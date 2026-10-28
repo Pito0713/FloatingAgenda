@@ -14,27 +14,47 @@ struct QuickLaunchSection: View {
     var onRemove: (Int) -> Void = { _ in }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("快速啟動")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            MenuSectionHeader(title: "快速啟動", note: "點名稱執行")
             // 同一個檔案可以加兩次，名稱也可能重複，只有位置是唯一的
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(spacing: 6) {
-                    Text(item.name)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(item.command.joined(separator: " "))
-                    Spacer(minLength: 4)
-                    Button("執行") { onRun(item) }
-                        .controlSize(.small)
-                    Button("移除") { onRemove(index) }
-                        .controlSize(.small)
+                // 一項一列、不用兩顆有框的按鈕（使用者 2026-10-28 回報選單太擠）。
+                // `.plain` 自己畫：`.borderless` 之類的 AppKit 按鈕 ImageRenderer 畫不出來
+                HStack(spacing: 4) {
+                    Button { onRun(item) } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.accentColor)
+                            Text(item.name)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("執行：\(item.command.joined(separator: " "))")
+                    Button { onRemove(index) } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("從快速啟動移除")
                 }
             }
-            Button("新增…") { chooseFile() }
-                .controlSize(.small)
+            Button { chooseFile() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                    Text("新增…")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 

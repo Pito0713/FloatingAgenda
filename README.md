@@ -53,9 +53,9 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 - 顯示懸浮窗開關、顯示模式（完整／收合／角色）、透明度滑桿
 - 顯示專案待辦、顯示排程、顯示對話泡泡
 - 排程點擊動作：替每個排程選一個點了要執行的檔案；取消勾選的排程不顯示在卡片上
-- 快速啟動：常用工具點一下就執行。「新增…」選檔案加入（.command 在終端機視窗執行，其他規則同排程點擊動作），每列可「執行」「移除」
+- 快速啟動：常用工具點名稱就執行。「＋ 新增…」選檔案加入（.command 在終端機視窗執行，其他規則同排程點擊動作），× 移除
 - 角色皮膚選擇、打開皮膚資料夾
-- 依來源分組的行事曆與提醒清單篩選
+- 依來源分組的行事曆與提醒清單篩選（預設收起，點標題展開）
 - 重新整理、結束
 
 ## 建置與安裝
@@ -365,6 +365,7 @@ FloatingAgenda/
 | `ProjectsSection.swift` / `ProjectCardView.swift` | 專案輪播與單一專案卡片（兩種模式共用） |
 | `SchedulesSection.swift` | 排程區 |
 | `QuickLaunchSection.swift` | 選單列「快速啟動」區塊 |
+| `ScheduleActionsSection.swift` | 選單列排程區（顯示勾選與點擊動作） |
 | `PermissionPrompt.swift` | 「需要 X 存取權限」＋「打開系統設定」 |
 | `MenuBarView.swift` / `MenuBarIcon.swift` | 選單列內容與巫師帽圖示 |
 | **Support/** | |
@@ -376,6 +377,7 @@ FloatingAgenda/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.12.6 | 2026-10-28 | 選單瘦身 | 選單列太長太擠（使用者回報）：行事曆與提醒篩選改成可收合、預設收起，標題列顯示「已隱藏 N 個」，展開時高度上限 320 → 240pt；排程每個只佔一列（勾選＋名稱＋右側檔名，點檔名選檔、× 清除），抽到 `ScheduleActionsSection.swift`；快速啟動一項一列，點名稱執行、× 移除、「＋ 新增…」；重新整理與結束併成一列。只有選單三組 snapshot 改變。測試 384 不變 |
 | 0.12.5 | 2026-10-28 | 隱藏個別排程 | 選單列「排程點擊動作」每個排程前面加勾選，取消勾選只從卡片上拿掉（設定存 `hiddenScheduleLabels`，存被隱藏的，新排程預設顯示）；全部取消時排程區整塊不出現。`--dump` 的 Schedules 區段標出被隱藏的。只有 menu-schedules 兩張 snapshot 因勾選框而變，其他逐位元組不變。測試 379 → 384 |
 | 0.12.4 | 2026-10-27 | 快速啟動 | 選單列「排程點擊動作」下方新增「快速啟動」區塊：放沒有排程的常用工具，每列「執行」「移除」，底部「新增…」用選檔視窗加入（不提供自由輸入指令），名稱預設為檔名去掉副檔名，照新增順序存在 UserDefaults `quickLaunchItems`。`.command` 用 `open` 在終端機視窗執行（TUI 需要終端機），其他副檔名沿用排程點擊動作的規則；排程那邊的 `.command` 仍是背景 `/bin/bash`。`--snapshot` 新增 menu-quicklaunch 一組圖，既有 34 張 snapshot 逐位元組不變。測試 370 → 379 |
 | 0.12.3 | 2026-10-12 | 排程區 | 卡片新增排程區：`~/Library/LaunchAgents` 裡 Label 以 `local.` 開頭的 launchd 排程，一個一列顯示燈號（執行中／上次失敗／正常／未載入）、觸發規則與下次執行時間，只讀 plist 與 `launchctl print`。點一列執行該排程設定的指令（選單列「排程點擊動作」選檔案，.py／.sh 在背景執行、其他檔案用預設 App 開），沒設定就開 log（空 log 改在 Finder 選取）。選單列新增「顯示排程」開關；`--dump` 新增 Schedules 區段、`--snapshot` 新增 schedules 與 menu-schedules 兩組圖。測試 348 → 370。完整與收合模式的既有 snapshot 逐位元組不變 |
