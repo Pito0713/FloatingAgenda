@@ -112,8 +112,10 @@ enum DevDump {
             print("  （沒有 \(LaunchSchedule.labelPrefix) 開頭的排程）")
             return
         }
+        let hidden = AppSettings.shared.hiddenScheduleLabels
         for item in items {
-            print("  · \(item.id) | \(Formatting.scheduleDetail(for: item, now: now))")
+            let mark = hidden.contains(item.id) ? "（卡片上隱藏）" : ""
+            print("  · \(item.id)\(mark) | \(Formatting.scheduleDetail(for: item, now: now))")
             print("      plist=\(item.plistURL.path)")
             if let log = item.logURL { print("      log=\(log.path)") }
         }

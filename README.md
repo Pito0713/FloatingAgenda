@@ -52,7 +52,7 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 
 - 顯示懸浮窗開關、顯示模式（完整／收合／角色）、透明度滑桿
 - 顯示專案待辦、顯示排程、顯示對話泡泡
-- 排程點擊動作：替每個排程選一個點了要執行的檔案
+- 排程點擊動作：替每個排程選一個點了要執行的檔案；取消勾選的排程不顯示在卡片上
 - 快速啟動：常用工具點一下就執行。「新增…」選檔案加入（.command 在終端機視窗執行，其他規則同排程點擊動作），每列可「執行」「移除」
 - 角色皮膚選擇、打開皮膚資料夾
 - 依來源分組的行事曆與提醒清單篩選
@@ -126,7 +126,8 @@ plist（App 自動安裝的排程都用自家的反向網域，所以不會混�
 - 點一列執行該排程設定的指令，沒設定就開 log（log 是空的就改在 Finder 選取）。
   在選單列「排程點擊動作」替每個排程選一個檔案：.py 用 python3、.sh 用 bash 在背景執行，
   其他檔案用預設 App 打開。有設定的列右邊會有箭頭
-- 完整模式與角色模式展開後才有；沒有排程時整塊不出現。選單列有「顯示排程」開關
+- 完整模式與角色模式展開後才有；沒有排程時整塊不出現。選單列有「顯示排程」開關，
+  也可以在「排程點擊動作」取消勾選個別排程（例如常駐型的 App），只從卡片上拿掉
 - **只讀不寫**：只讀 plist 與跑 `launchctl print`，不會 load／unload／觸發排程
 
 ## 自製角色
@@ -299,6 +300,7 @@ build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 | `hiddenReminderListIDs` | [String] | `[]` | 被隱藏的提醒清單 ID |
 | `showProjectTicker` | Bool | `true` | 是否顯示專案輪播 |
 | `showSchedules` | Bool | `true` | 是否顯示排程區 |
+| `hiddenScheduleLabels` | [String] | 空 | 不顯示在卡片上的排程 Label，存「被隱藏的」，新排程預設顯示 |
 | `scheduleOpenCommands` | [String: [String]] | 無 | 點排程列時要執行的指令，key 是排程的 Label，value 是「執行檔絕對路徑 ＋ 參數」。通常從選單列「排程點擊動作」選檔案設定；要帶參數時用 `defaults write io.github.pito0713.floatingagenda scheduleOpenCommands -dict-add local.my-job '("/usr/bin/python3", "/path/to/script.py", "--flag")'` |
 | `quickLaunchItems` | [[String: Any]] | 無 | 選單列快速啟動的項目，照順序；每項是 `name`（String）＋ `command`（執行檔絕對路徑 ＋ 參數）。從選單列「快速啟動 → 新增…」選檔案加入 |
 | `showBubble` | Bool | `true` | 角色模式要不要顯示對話泡泡 |
@@ -374,6 +376,7 @@ FloatingAgenda/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.12.5 | 2026-10-28 | 隱藏個別排程 | 選單列「排程點擊動作」每個排程前面加勾選，取消勾選只從卡片上拿掉（設定存 `hiddenScheduleLabels`，存被隱藏的，新排程預設顯示）；全部取消時排程區整塊不出現。`--dump` 的 Schedules 區段標出被隱藏的。只有 menu-schedules 兩張 snapshot 因勾選框而變，其他逐位元組不變。測試 379 → 384 |
 | 0.12.4 | 2026-10-27 | 快速啟動 | 選單列「排程點擊動作」下方新增「快速啟動」區塊：放沒有排程的常用工具，每列「執行」「移除」，底部「新增…」用選檔視窗加入（不提供自由輸入指令），名稱預設為檔名去掉副檔名，照新增順序存在 UserDefaults `quickLaunchItems`。`.command` 用 `open` 在終端機視窗執行（TUI 需要終端機），其他副檔名沿用排程點擊動作的規則；排程那邊的 `.command` 仍是背景 `/bin/bash`。`--snapshot` 新增 menu-quicklaunch 一組圖，既有 34 張 snapshot 逐位元組不變。測試 370 → 379 |
 | 0.12.3 | 2026-10-12 | 排程區 | 卡片新增排程區：`~/Library/LaunchAgents` 裡 Label 以 `local.` 開頭的 launchd 排程，一個一列顯示燈號（執行中／上次失敗／正常／未載入）、觸發規則與下次執行時間，只讀 plist 與 `launchctl print`。點一列執行該排程設定的指令（選單列「排程點擊動作」選檔案，.py／.sh 在背景執行、其他檔案用預設 App 開），沒設定就開 log（空 log 改在 Finder 選取）。選單列新增「顯示排程」開關；`--dump` 新增 Schedules 區段、`--snapshot` 新增 schedules 與 menu-schedules 兩組圖。測試 348 → 370。完整與收合模式的既有 snapshot 逐位元組不變 |
 | 0.12.2 | 2026-09-29 | 專案輪播 | 完整模式的卡片最下面新增專案區（原本只有角色模式展開後才看得到），一次顯示一個專案、每 8 秒換下一個、滑鼠停住暫停、點名稱開 `latest.md`；角色模式展開後原本的「攤開 4 張卡 ＋ 捲動」一併改成同一套輪播，兩個模式共用 `ProjectCardView`。卡片固定 90pt 以免換頁時面板上下跳（實測真實資料落差 98pt），列得下幾項待辦是先算再少列。選單列新增「顯示專案待辦」開關。完整與收合模式的 snapshot 與前一版逐位元組相同 |

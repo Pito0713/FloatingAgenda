@@ -57,6 +57,7 @@ final class AppSettings {
         static let showSchedules = "showSchedules"
         static let scheduleOpenCommands = "scheduleOpenCommands"
         static let quickLaunchItems = "quickLaunchItems"
+        static let hiddenScheduleLabels = "hiddenScheduleLabels"
     }
 
     private let defaults: any SettingsStore
@@ -144,6 +145,13 @@ final class AppSettings {
     var showSchedules: Bool {
         get { defaults.bool(forKey: Key.showSchedules) }
         set { defaults.set(newValue, forKey: Key.showSchedules) }
+    }
+
+    /// 不顯示在卡片上的排程 Label（使用者 2026-10-28 要求）。
+    /// 跟行事曆一樣存「被隱藏的」，之後新增的排程才會預設顯示
+    var hiddenScheduleLabels: Set<String> {
+        get { Set(defaults.stringArray(forKey: Key.hiddenScheduleLabels) ?? []) }
+        set { defaults.set(Array(newValue), forKey: Key.hiddenScheduleLabels) }
     }
 
     /// 點排程列時要執行的指令，key 是排程的 Label（例如 `local.tw-stock-tracker.update`），

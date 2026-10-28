@@ -208,22 +208,30 @@ struct MenuBarView: View {
         .onAppear { delegate?.panelController?.reloadSkins() }
     }
 
-    /// 每個排程點了要執行什麼（使用者 2026-10-12 要求，取代手打 `defaults write`）。
+    /// 每個排程點了要執行什麼（使用者 2026-10-12 要求，取代手打 `defaults write`），
+    /// 以及要不要顯示在卡片上（使用者 2026-10-28 要求：常駐型的排程不需要看）。
     ///
     /// 只能**選一個檔案**，指令由副檔名推出來（`ScheduleCommand.command(forFile:)`）：
     /// 不提供自由輸入的指令列，免得選單變成一個可以跑任意 shell 字串的地方
     private var scheduleActionsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("排程點擊動作")
+            Text("排程點擊動作（勾選的顯示在卡片上）")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             ForEach(schedules) { item in
                 let command = settings.scheduleOpenCommands[item.id]
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.name)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    Toggle(isOn: Binding(
+                        get: { !settings.hiddenScheduleLabels.contains(item.id) },
+                        set: { setScheduleHidden(item, !$0) }
+                    )) {
+                        Text(item.name)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
                     HStack(spacing: 6) {
                         Text(command.map(ScheduleCommand.summary) ?? "點了開 log")
                             .font(.system(size: 11))
@@ -266,6 +274,16 @@ struct MenuBarView: View {
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         setCommand(ScheduleCommand.command(forFile: url), for: item)
+    }
+
+    private func setScheduleHidden(_ item: ScheduleItem, _ hidden: Bool) {
+        if hidden {
+            settings.hiddenScheduleLabels.insert(item.id)
+        } else {
+            settings.hiddenScheduleLabels.remove(item.id)
+        }
+        delegate?.panelController?.reloadPanelContent()
+        revision += 1
     }
 
     private func setCommand(_ command: [String]?, for item: ScheduleItem) {

@@ -170,9 +170,17 @@ struct PanelRootView: View {
         enabled && (mode == .full || (mode == .character && expanded))
     }
 
+    /// 拿掉使用者在選單取消勾選的排程。全部隱藏就是空清單，排程區整塊不出現
+    static func hidingSchedules(_ state: SectionState<ScheduleItem>,
+                                labels: Set<String>) -> SectionState<ScheduleItem> {
+        guard case .loaded(let items, _) = state, !labels.isEmpty else { return state }
+        let visible = items.filter { !labels.contains($0.id) }
+        return .loaded(items: visible, total: visible.count)
+    }
+
     private var visibleSchedulesState: SectionState<ScheduleItem>? {
         Self.showsSchedules(mode: mode, expanded: isExpanded, enabled: settings.showSchedules)
-            ? schedules.state : nil
+            ? Self.hidingSchedules(schedules.state, labels: settings.hiddenScheduleLabels) : nil
     }
 
     /// 點排程列：有設定指令就跑指令（例如台股儀表板），否則開 log。

@@ -256,3 +256,45 @@ final class ScheduleCommandTests: XCTestCase {
                        "open_dashboard.py")
     }
 }
+
+/// 選單取消勾選的排程不出現在卡片上
+@MainActor
+final class HiddenSchedulesTests: XCTestCase {
+    private func item(_ label: String) -> ScheduleItem {
+        ScheduleItem(id: label, name: label, trigger: .none, run: .notLoaded,
+                     logURL: nil, plistURL: URL(fileURLWithPath: "/x/\(label).plist"))
+    }
+
+    func testDefaultHidesNothing() {
+        XCTAssertEqual(Fixture.settings().hiddenScheduleLabels, [])
+    }
+
+    func testRoundTripUnderExpectedKey() {
+        let (settings, store) = Fixture.settingsWithStore()
+        settings.hiddenScheduleLabels = ["local.wakawaka"]
+        XCTAssertEqual(settings.hiddenScheduleLabels, ["local.wakawaka"])
+        XCTAssertEqual(store.persistedObject(forKey: "hiddenScheduleLabels") as? [String],
+                       ["local.wakawaka"])
+    }
+
+    func testFilterKeepsOrderAndRecountsTotal() {
+        let state = SectionState.loaded(items: [item("local.a"), item("local.b"), item("local.c")],
+                                        total: 3)
+        XCTAssertEqual(PanelRootView.hidingSchedules(state, labels: ["local.b"]),
+                       .loaded(items: [item("local.a"), item("local.c")], total: 2))
+    }
+
+    /// 全部隱藏 → 空清單，排程區整塊不出現
+    func testHidingAllLeavesEmptyList() {
+        let state = SectionState.loaded(items: [item("local.a")], total: 1)
+        XCTAssertEqual(PanelRootView.hidingSchedules(state, labels: ["local.a"]),
+                       .loaded(items: [], total: 0))
+    }
+
+    /// 已經不存在的排程留在隱藏清單裡也沒關係；非 loaded 的狀態原樣傳回
+    func testUnknownLabelsAndOtherStatesPassThrough() {
+        let state = SectionState.loaded(items: [item("local.a")], total: 1)
+        XCTAssertEqual(PanelRootView.hidingSchedules(state, labels: ["local.gone"]), state)
+        XCTAssertEqual(PanelRootView.hidingSchedules(.loading, labels: ["local.a"]), .loading)
+    }
+}
