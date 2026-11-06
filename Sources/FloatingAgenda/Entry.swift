@@ -19,6 +19,9 @@ enum Entry {
         case "--snapshot":
             let prefix = args.count > 1 ? args[1] : nil
             runDevCommand { await DevSnapshot.run(outputPrefix: prefix) }
+        case "--events-to-reminders":
+            let dryRun = args.contains("--dry-run")
+            runDevCommand { await EventsToReminders.run(dryRun: dryRun) }
         case "--help", "-h":
             printUsage()
             exit(0)
@@ -47,6 +50,8 @@ enum Entry {
           FloatingAgenda --dump       印出行事曆／提醒清單與近 7 天資料（唯讀）
           FloatingAgenda --snapshot <輸出路徑前綴>
                                       用 mock 資料輸出 <前綴>-light.png 與 <前綴>-dark.png
+          FloatingAgenda --events-to-reminders [--dry-run]
+                                      把今天的行程轉成「行程」清單裡的提醒（--dry-run 只列出不寫入）
           FloatingAgenda --help       顯示本說明
         """)
     }

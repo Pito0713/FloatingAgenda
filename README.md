@@ -52,6 +52,7 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 
 - 顯示懸浮窗開關、顯示模式（完整／收合／角色）、透明度滑桿
 - 顯示專案待辦、顯示排程、顯示對話泡泡
+- 每天把行程轉成提醒（預設關閉），見下方「行程轉提醒」
 - 排程點擊動作：替每個排程選一個點了要執行的檔案；取消勾選的排程不顯示在卡片上
 - 快速啟動：常用工具點名稱就執行。「＋ 新增…」選檔案加入（.command 在終端機視窗執行，其他規則同排程點擊動作），× 移除
 - 角色皮膚選擇、打開皮膚資料夾
@@ -95,7 +96,24 @@ UserDefaults 也會換一個 domain（面板位置、透明度、篩選設定回
 要事後調整：**系統設定 → 隱私權與安全性 → 行事曆／提醒事項**。
 改完不必重開 App，卡片最多 3 秒就會自己載入資料。
 
-整個 App 唯一會寫入的動作是**你自己點圓圈勾選提醒**；其餘對行事曆與提醒的存取全部唯讀。
+整個 App 只有兩個會寫入的動作：**你自己點圓圈勾選提醒**，以及你打開「每天把行程轉成提醒」後
+建立的提醒（只新增、不修改或刪除任何既有資料）。行事曆一律唯讀。
+
+## 行程轉提醒（可選）
+
+選單列打開「每天把行程轉成提醒」後，每天把今天的行程建成提醒，放在提醒事項的「行程」清單
+（沒有就自動建立，建在預設提醒清單所在的帳號）。
+
+- **一天只轉一次**：App 啟動、過午夜、睡眠喚醒或 60 秒定時重讀時檢查，今天成功轉過就不再轉。
+  當天刪掉的提醒不會被建回來；當天才新增的行程也不會補轉
+- **只轉今天還沒結束的行程**：昨天開始、跨過午夜的不算；進行中的照轉。到期時間是行程的開始時間，
+  整天行程只設日期
+- **不重複**：每筆提醒的 URL 記著對應的行程（重複行程每天各算一筆），已經在「行程」清單裡的
+  （含已完成）一律跳過
+- 選單列隱藏的行事曆不轉。只新增，不會跟著行程的修改或刪除同步
+- App 要在執行中才會轉；那一天整天沒開就不會補
+- 想手動跑一次：`FloatingAgenda --events-to-reminders`（加 `--dry-run` 只列出不寫入）。
+  從 `build/` 或 `.build/` 直接執行時讀不到 App 的 UserDefaults，不會套用隱藏的行事曆
 
 ## 專案進度（可選）
 
@@ -330,7 +348,7 @@ FloatingAgenda/
 
 | 檔案 | 職責 |
 |------|------|
-| `Entry.swift` | `@main`。先看 `--dump` / `--snapshot` / `--help`，都沒有才啟動 App |
+| `Entry.swift` | `@main`。先看 `--dump` / `--snapshot` / `--events-to-reminders` / `--help`，都沒有才啟動 App |
 | `FloatingAgendaApp.swift` | SwiftUI `App` ＋ `MenuBarExtra` |
 | `AppDelegate.swift` | 建立 `PanelController`、依設定決定是否顯示、啟動各個 store |
 | **Panel/** | |
@@ -340,7 +358,8 @@ FloatingAgenda/
 | `WindowDragArea.swift` | 覆寫 `mouseDown` 呼叫 `performDrag` 的拖曳層 |
 | **Data/** | |
 | `AgendaStore.swift` | EventKit 權限與讀取、變更監聽、篩選、開啟原生 App、勾選完成的漏斗 |
-| `ReminderWriter.swift` | 勾選寫入的 protocol 與 production 實作（唯一碰寫入 API 的地方） |
+| `ReminderWriter.swift` | 勾選寫入的 protocol 與 production 實作 |
+| `EventReminderSync.swift` | 行程轉提醒：要轉哪些、一天一次的判斷（純函式）與 EventKit 寫入 |
 | `Models.swift` | `EventItem` / `ReminderItem` / `CalendarInfo` / `SectionState` 等值型別 |
 | `AppSettings.swift` | UserDefaults 包裝與舊設定遷移 |
 | `SessionParser.swift` | `latest.md` → `ProjectItem`，純函式 |
@@ -372,11 +391,13 @@ FloatingAgenda/
 | `Formatting.swift` | 日期／時間／到期文字、逾期判定，跟隨系統的 12/24 小時制與 Locale |
 | **Dev/** | |
 | `DevDump.swift` / `DevSnapshot.swift` / `MockData.swift` | `--dump`、`--snapshot` 與假資料 |
+| `EventsToReminders.swift` | `--events-to-reminders`，手動跑一次行程轉提醒 |
 
 ## 版本紀錄
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.13.0 | 2026-11-06 | 行程轉提醒 | 選單列新增「每天把行程轉成提醒」（預設關閉）：每天一次把今天還沒結束的行程建成「行程」清單裡的提醒，到期時間＝開始時間、整天行程只設日期；提醒 URL 記著行程 ID＋開始時間防重複，設定 `lastEventsToRemindersDay` 讓一天只成功跑一次，失敗下一輪 refresh 重試並在選單列顯示錯誤。新增 `--events-to-reminders [--dry-run]`。App 新增第二條寫入路徑（只新增提醒與清單）。測試 384 → 390 |
 | 0.12.6 | 2026-10-28 | 選單瘦身 | 選單列太長太擠（使用者回報）：行事曆與提醒篩選改成可收合、預設收起，標題列顯示「已隱藏 N 個」，展開時高度上限 320 → 240pt；排程每個只佔一列（勾選＋名稱＋右側檔名，點檔名選檔、× 清除），抽到 `ScheduleActionsSection.swift`；快速啟動一項一列，點名稱執行、× 移除、「＋ 新增…」；重新整理與結束併成一列。只有選單三組 snapshot 改變。測試 384 不變 |
 | 0.12.5 | 2026-10-28 | 隱藏個別排程 | 選單列「排程點擊動作」每個排程前面加勾選，取消勾選只從卡片上拿掉（設定存 `hiddenScheduleLabels`，存被隱藏的，新排程預設顯示）；全部取消時排程區整塊不出現。`--dump` 的 Schedules 區段標出被隱藏的。只有 menu-schedules 兩張 snapshot 因勾選框而變，其他逐位元組不變。測試 379 → 384 |
 | 0.12.4 | 2026-10-27 | 快速啟動 | 選單列「排程點擊動作」下方新增「快速啟動」區塊：放沒有排程的常用工具，每列「執行」「移除」，底部「新增…」用選檔視窗加入（不提供自由輸入指令），名稱預設為檔名去掉副檔名，照新增順序存在 UserDefaults `quickLaunchItems`。`.command` 用 `open` 在終端機視窗執行（TUI 需要終端機），其他副檔名沿用排程點擊動作的規則；排程那邊的 `.command` 仍是背景 `/bin/bash`。`--snapshot` 新增 menu-quicklaunch 一組圖，既有 34 張 snapshot 逐位元組不變。測試 370 → 379 |

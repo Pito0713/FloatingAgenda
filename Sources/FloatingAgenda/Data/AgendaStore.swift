@@ -4,10 +4,12 @@ import Observation
 
 /// EventKit 權限、讀取、變更監聽、篩選，以及開啟原生 App。
 ///
-/// ⚠️ **本型別是唯一會觸發寫入使用者資料的地方**：`commitCompletion` 會呼叫
-/// `ReminderWriter.markCompleted`。實際碰到 EventKit 的寫入 API 的只有
-/// `EventKitReminderWriter`（見 `ReminderWriter.swift`）；本型別負責的是
-/// **要不要寫、什麼時候寫**的判斷，那些判斷有單元測試保護。
+/// ⚠️ **本型別是唯一會觸發寫入使用者資料的地方**，有兩條路徑：
+/// - `commitCompletion` 呼叫 `ReminderWriter.markCompleted`，實際寫入在 `EventKitReminderWriter`
+///   （見 `ReminderWriter.swift`）
+/// - `convertEventsToRemindersIfNeeded` 每天一次把今天的行程轉成提醒，實際寫入在
+///   `EventKitEventReminderSync`；選單列開關預設關閉（見 `EventReminderSync.swift`）
+/// 本型別負責的是**要不要寫、什麼時候寫**的判斷，那些判斷有單元測試保護。
 /// 其餘所有 EventKit 呼叫都是唯讀。動這個檔案之前先讀 `PLAN.md` §8 的紅線。
 @MainActor
 @Observable
@@ -43,6 +45,10 @@ final class AgendaStore {
     /// EventKit 回傳的不透明識別值；發出下一次查詢前取消前一次，
     /// 避免過期查詢仍跑完整個讀取、轉換與排序
     @ObservationIgnored private var reminderFetchIdentifier: Any?
+    /// 行程轉提醒是非同步的；跑完前別的 refresh 再進來不能重跑一次
+    @ObservationIgnored private var eventSyncInFlight = false
+    /// 最後一次行程轉提醒失敗的訊息，選單列開關底下顯示；成功就清掉
+    private(set) var eventSyncError: String?
 
     /// 顯示為已勾選的提醒。涵蓋兩個階段：緩衝期內（尚未寫入、可取消），
     /// 以及寫入成功後等待 refresh 把該列移除的短暫期間（已無法取消）。
@@ -125,6 +131,33 @@ final class AgendaStore {
         loadEvents(now: now)
         loadReminders(now: now)
         schedulePermissionPollIfNeeded()
+        convertEventsToRemindersIfNeeded(now: now)
+    }
+
+    // MARK: - 行程轉提醒
+
+    /// 搭 refresh 的便車：啟動、過午夜、睡眠喚醒、60 秒定時都會進來，
+    /// 但 `shouldAutoRun` 讓它一天只成功跑一次。失敗不記日期，下一輪 refresh 會重試
+    private func convertEventsToRemindersIfNeeded(now: Date) {
+        let calendar = Formatting.calendar
+        guard !eventSyncInFlight,
+              EventReminderSync.shouldAutoRun(enabled: settings.autoEventsToReminders,
+                                              lastDay: settings.lastEventsToRemindersDay,
+                                              now: now, calendar: calendar),
+              !needsAnyPermission else { return }
+
+        eventSyncInFlight = true
+        let sync = EventKitEventReminderSync(store: store, settings: settings)
+        Task { @MainActor [weak self] in
+            defer { self?.eventSyncInFlight = false }
+            do {
+                _ = try await sync.run(now: now, dryRun: false)
+                self?.settings.lastEventsToRemindersDay = EventReminderSync.dayStamp(for: now, calendar: calendar)
+                self?.eventSyncError = nil
+            } catch {
+                self?.eventSyncError = "行程轉提醒失敗：\(error.localizedDescription)"
+            }
+        }
     }
 
     /// 使用者到系統設定把權限打開後，不該還要等最多 60 秒才看到資料。

@@ -93,6 +93,25 @@ struct MenuBarView: View {
                 characterSkinRow
             }
 
+            Toggle("每天把行程轉成提醒", isOn: Binding(
+                get: { settings.autoEventsToReminders },
+                set: { newValue in
+                    settings.autoEventsToReminders = newValue
+                    // 打開就立刻轉一次（今天已經轉過的話 refresh 會自己跳過）
+                    if newValue { store.refresh() }
+                    revision += 1
+                }
+            ))
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .help("每天第一次讀到行程時，把今天還沒結束的行程建成「\(EventReminderSync.listTitle)」清單裡的提醒")
+
+            if let error = store.eventSyncError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+
             opacityRow
 
             Divider()

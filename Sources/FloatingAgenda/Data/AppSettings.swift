@@ -58,6 +58,8 @@ final class AppSettings {
         static let scheduleOpenCommands = "scheduleOpenCommands"
         static let quickLaunchItems = "quickLaunchItems"
         static let hiddenScheduleLabels = "hiddenScheduleLabels"
+        static let autoEventsToReminders = "autoEventsToReminders"
+        static let lastEventsToRemindersDay = "lastEventsToRemindersDay"
     }
 
     private let defaults: any SettingsStore
@@ -152,6 +154,18 @@ final class AppSettings {
     var hiddenScheduleLabels: Set<String> {
         get { Set(defaults.stringArray(forKey: Key.hiddenScheduleLabels) ?? []) }
         set { defaults.set(Array(newValue), forKey: Key.hiddenScheduleLabels) }
+    }
+
+    /// 每天把今天的行程轉成提醒（使用者 2026-11-06 要求）。會寫入使用者資料，所以預設關閉
+    var autoEventsToReminders: Bool {
+        get { defaults.bool(forKey: Key.autoEventsToReminders) }
+        set { defaults.set(newValue, forKey: Key.autoEventsToReminders) }
+    }
+
+    /// 最後一次成功轉換的日期（`EventReminderSync.dayStamp`），一天只轉一次靠它
+    var lastEventsToRemindersDay: String? {
+        get { defaults.object(forKey: Key.lastEventsToRemindersDay) as? String }
+        set { defaults.set(newValue, forKey: Key.lastEventsToRemindersDay) }
     }
 
     /// 點排程列時要執行的指令，key 是排程的 Label（例如 `local.tw-stock-tracker.update`），
