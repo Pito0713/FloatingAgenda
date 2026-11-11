@@ -17,7 +17,7 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 
 | 模式 | 樣子 |
 |------|------|
-| **完整** | 一張卡片：標題、行程、提醒，最下面是專案輪播 |
+| **完整** | 一張卡片：標題、行程、提醒、排程、所有專案，全部攤開看詳情；超過螢幕高度就捲動 |
 | **收合** | 只剩兩列：行程（標題顯示「正在進行中」或「即將到來」）＋ 第一筆提醒，字級放大 1.25 倍 |
 | **角色** | 一隻 16×16 的像素小精靈，旁邊有對話泡泡；點它展開成完整卡片 |
 
@@ -26,8 +26,8 @@ SwiftUI ＋ AppKit 的 `NSPanel`（floating level）做一般 App，所以能真
 | 區塊 | 內容 |
 |------|------|
 | 標題 | 紅色星期 ＋ 粗體日期，跨午夜自動換 |
-| 行程 | **只有今天**、已結束的不顯示、整天行程排最前面、進行中顯示「進行中 · 至 HH:mm」、最多 6 筆 |
-| 提醒 | **逾期 ＋ 今天到期**（沒設到期日的不顯示）、逾期紅字、最多 6 筆 |
+| 行程 | **只有今天**、已結束的不顯示、整天行程排最前面、進行中顯示「進行中 · 至 HH:mm」、每列附長度與行事曆名稱、全部列出；今天沒有行程時預告明天 |
+| 提醒 | **逾期 ＋ 今天到期**（沒設到期日的不顯示），分「逾期／今天」兩組、全部列出；每列附清單名稱、優先順序、相對時間（逾期 3 天／還有 2 小時）與備註第一行 |
 | 排程 | 自己設的 launchd 排程，一個一列：燈號、觸發規則（「平日 16:30」）、下次執行時間。見下方「排程」 |
 | 專案 | 一次顯示**一個**專案（名稱、燈號、進度條、更新時間、卡住的點、待辦），每 8 秒換下一個。見下方「專案進度」 |
 
@@ -128,10 +128,13 @@ App 會唯讀掃描 `~/.agent-sessions/<專案>/latest.md` 這種交接文件，
 格式是一般的 markdown：`# 標題`、`> 狀態：🟢 順暢`、`> 最後更新：2026-09-18 15:20`、
 `## 進行中` 底下的 `- [x]` / `- [ ]` 清單、`## 卡住的點` 區段。缺欄位不會壞，會用預設值。
 
-呈現方式是**輪播**：一次只顯示一個專案，每 8 秒換下一個，滑鼠停在上面會暫停，
-右上角的「3/7」告訴你現在是第幾個、總共幾個，點專案名稱會打開那個 `latest.md`。
-卡片固定 90pt 高——每個專案的內容長短不一，不固定的話每次換頁整個面板都會上下跳。
-放不下時會少列幾項待辦，並在最後一列行尾標「＋N」，不會把字裁掉一半。
+所有專案**一次攤開**（2026-11-10 起，原本是 8 秒輪播），順序是有卡住的點 → 🔴 → 🟡 → 🟢。
+每張卡跟著內容長高：待辦全部列出、卡住的點最多 3 行；點專案名稱會打開那個 `latest.md`。
+
+有登記 Agent_skill project-review 的專案（`~/.agent-reports/project-review/<專案>/status.json`，
+只讀不寫）會在進度條下面多一行 review 狀態，依序取最嚴重的一個：
+🔴 失敗 → 💥 執行錯誤 → ⏳ 超過 36 小時沒跑 → ⚠️ 注意 → ✅ 正常 → 💤 沒有變更，
+交接落後時附「· 交接落後 N commits」。點這一行打開報告。燈號與進度條仍然只看 `latest.md`。
 
 完整模式與角色模式展開後用的是**同一個**元件。不想看的話，選單列有「顯示專案待辦」開關。
 
@@ -269,7 +272,7 @@ swift test      # 370 個單元測試，約 3 秒
 
 涵蓋範圍：日期與到期文案、排序、收合挑選、設定讀寫與遷移、**勾選完成的整條路徑**
 （1.2 秒緩衝、取消、權限被撤時拒寫）、面板錨點與幾何、`latest.md` 解析與專案掃描、
-專案輪播與卡片高度、心情判定、像素角色、動畫、對話泡泡、皮膚驗證、選單列圖示。
+專案區與卡片排版、review 狀態解析、展開卡片的捲動、心情判定、像素角色、動畫、對話泡泡、皮膚驗證、選單列圖示。
 
 `PanelAnchorTests` 裡有一個測試需要接兩個螢幕，只有一個螢幕時會自動略過。
 
@@ -287,7 +290,8 @@ build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 # 用 mock 資料輸出 PNG（scale 2），不讀取也不寫入任何真實資料。
 # 每張都有 -light / -dark 兩個版本（char-sprites 除外）：
 #   /tmp/fa-light|dark.png              完整卡片
-#   /tmp/fa-ticker-*.png                卡片 ＋ 專案輪播
+#   /tmp/fa-ticker-*.png                卡片 ＋ 專案區（含 review 狀態）
+#   /tmp/fa-tomorrow-*.png              今天沒有行程時預告明天
 #   /tmp/fa-menu-*.png                  選單列
 #   /tmp/fa-collapsed-*.png             收合模式（另有 -upcoming、-empty 變體）
 #   /tmp/fa-permission|failed|writefail-*.png  缺權限、讀取失敗、勾選寫入失敗
@@ -316,7 +320,7 @@ build/FloatingAgenda.app/Contents/MacOS/FloatingAgenda --snapshot /tmp/fa
 | `opacity` | Double | `1.0` | 透明度，讀寫都夾限在 0.3–1.0 |
 | `hiddenCalendarIDs` | [String] | `[]` | **被隱藏的**行事曆 ID（所以新增的行事曆預設顯示） |
 | `hiddenReminderListIDs` | [String] | `[]` | 被隱藏的提醒清單 ID |
-| `showProjectTicker` | Bool | `true` | 是否顯示專案輪播 |
+| `showProjectTicker` | Bool | `true` | 完整模式是否顯示專案區（名稱沿用輪播時代） |
 | `showSchedules` | Bool | `true` | 是否顯示排程區 |
 | `hiddenScheduleLabels` | [String] | 空 | 不顯示在卡片上的排程 Label，存「被隱藏的」，新排程預設顯示 |
 | `scheduleOpenCommands` | [String: [String]] | 無 | 點排程列時要執行的指令，key 是排程的 Label，value 是「執行檔絕對路徑 ＋ 參數」。通常從選單列「排程點擊動作」選檔案設定；要帶參數時用 `defaults write io.github.pito0713.floatingagenda scheduleOpenCommands -dict-add local.my-job '("/usr/bin/python3", "/path/to/script.py", "--flag")'` |
@@ -364,7 +368,8 @@ FloatingAgenda/
 | `AppSettings.swift` | UserDefaults 包裝與舊設定遷移 |
 | `SessionParser.swift` | `latest.md` → `ProjectItem`，純函式 |
 | `ProjectStore.swift` | 唯讀掃描 `~/.agent-sessions`，60 秒與喚醒時重讀 |
-| `ProjectTicker.swift` | 專案輪播的內容與換頁 |
+| `ProjectTicker.swift` | 專案區要顯示哪些專案、沒有時說什麼 |
+| `ReviewStatus.swift` | 讀 project-review 的 `status.json`（唯讀）與卡片上那一行的顯示規則 |
 | `LaunchSchedule.swift` | launchd plist 與 `launchctl print` 的解析、下次執行時間，純函式 |
 | `ScheduleStore.swift` | 唯讀掃描 `~/Library/LaunchAgents`，60 秒與喚醒時重讀；排程點擊指令的組成與執行 |
 | `QuickLaunch.swift` | 選單列快速啟動的項目與「選了檔案要怎麼執行」 |
@@ -381,7 +386,7 @@ FloatingAgenda/
 | `HeaderView.swift` | 紅色星期 ＋ 粗體日期 |
 | `EventsSection.swift` / `RemindersSection.swift` | 行程區與提醒區 |
 | `CollapsedCardView.swift` | 收合模式的兩列 |
-| `ProjectsSection.swift` / `ProjectCardView.swift` | 專案輪播與單一專案卡片（兩種模式共用） |
+| `ProjectsSection.swift` / `ProjectCardView.swift` | 專案區與單一專案卡片（兩種模式共用） |
 | `SchedulesSection.swift` | 排程區 |
 | `QuickLaunchSection.swift` | 選單列「快速啟動」區塊 |
 | `ScheduleActionsSection.swift` | 選單列排程區（顯示勾選與點擊動作） |
@@ -397,6 +402,7 @@ FloatingAgenda/
 
 | 版本 | 日期 | 里程碑 | 變更摘要 |
 |------|------|--------|---------|
+| 0.14.0 | 2026-11-10 | 展開看詳情 | 收合模式負責精簡、展開就看詳情（使用者要求）。行程全部列出並附長度與行事曆名稱，今天沒行程時預告明天；提醒全部列出、分逾期／今天兩組，附清單名稱、優先順序、相對時間與備註第一行；排程全部列出，多一行 PID／上次結束代碼；專案從 8 秒輪播改成全部攤開，卡片不再固定 90pt，待辦全部列出；新增 project-review 狀態列（讀 `~/.agent-reports/project-review/<專案>/status.json`，36 小時算過期，點了開報告）。內容超過螢幕高度時整張卡捲動。完整模式與角色模式展開共用同一套排版，其 snapshot 全部換新；收合模式、選單、小精靈的 snapshot 逐位元組不變。新增 `fa-tomorrow` snapshot。測試 390 → 407 |
 | 0.13.0 | 2026-11-06 | 行程轉提醒 | 選單列新增「每天把行程轉成提醒」（預設關閉）：每天一次把今天還沒結束的行程建成「行程」清單裡的提醒，到期時間＝開始時間、整天行程只設日期；提醒 URL 記著行程 ID＋開始時間防重複，設定 `lastEventsToRemindersDay` 讓一天只成功跑一次，失敗下一輪 refresh 重試並在選單列顯示錯誤。新增 `--events-to-reminders [--dry-run]`。App 新增第二條寫入路徑（只新增提醒與清單）。測試 384 → 390 |
 | 0.12.6 | 2026-10-28 | 選單瘦身 | 選單列太長太擠（使用者回報）：行事曆與提醒篩選改成可收合、預設收起，標題列顯示「已隱藏 N 個」，展開時高度上限 320 → 240pt；排程每個只佔一列（勾選＋名稱＋右側檔名，點檔名選檔、× 清除），抽到 `ScheduleActionsSection.swift`；快速啟動一項一列，點名稱執行、× 移除、「＋ 新增…」；重新整理與結束併成一列。只有選單三組 snapshot 改變。測試 384 不變 |
 | 0.12.5 | 2026-10-28 | 隱藏個別排程 | 選單列「排程點擊動作」每個排程前面加勾選，取消勾選只從卡片上拿掉（設定存 `hiddenScheduleLabels`，存被隱藏的，新排程預設顯示）；全部取消時排程區整塊不出現。`--dump` 的 Schedules 區段標出被隱藏的。只有 menu-schedules 兩張 snapshot 因勾選框而變，其他逐位元組不變。測試 379 → 384 |

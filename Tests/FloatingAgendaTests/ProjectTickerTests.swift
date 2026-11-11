@@ -1,9 +1,9 @@
 import XCTest
 @testable import FloatingAgenda
 
-/// 完整模式卡片下方的專案輪播（使用者 2026-09-29 要求）。
+/// 專案區要顯示哪些專案（2026-11-10 起所有專案一次攤開，不再輪播）。
 ///
-/// 挑誰、換頁都是純函式，所以這裡全部直接驗值，不需要渲染任何 View。
+/// 挑誰是純函式，所以這裡全部直接驗值，不需要渲染任何 View。
 /// 卡片**長什麼樣**不在這裡驗——那是 `ProjectCardView`，
 /// 兩個模式共用同一個型別，由 `ProjectCardSharingTests` 守住。
 final class ProjectTickerTests: XCTestCase {
@@ -20,7 +20,7 @@ final class ProjectTickerTests: XCTestCase {
     }
 
     func testNoDisplayLimit() {
-        // ProjectsSection 一次攤開所有卡片所以限 4 個；輪播一次只顯示一個，不必限
+        // 展開的卡片是看詳情的地方，放不下由整張卡捲動，不限數量
         let projects = (1...10).map { project("P\($0)") }
 
         XCTAssertEqual(ProjectTicker.entries(projects: loaded(projects)).count, 10)
@@ -36,77 +36,6 @@ final class ProjectTickerTests: XCTestCase {
         }
     }
 
-    // MARK: - 輪播游標
-
-    func testCursorStartsAtFirstProject() {
-        let entries = ProjectTicker.entries(projects: loaded([project("A"), project("B")]))
-        let cursor = ProjectTicker.Cursor()
-
-        XCTAssertEqual(cursor.current(in: entries)?.id, "A")
-        XCTAssertEqual(cursor.position(in: entries), 1)
-    }
-
-    func testCursorAdvancesAndWrapsAround() {
-        let entries = ProjectTicker.entries(projects: loaded([project("A"), project("B")]))
-        var cursor = ProjectTicker.Cursor()
-
-        cursor.advance(in: entries)
-        XCTAssertEqual(cursor.current(in: entries)?.id, "B")
-        XCTAssertEqual(cursor.position(in: entries), 2)
-
-        cursor.advance(in: entries)
-        XCTAssertEqual(cursor.current(in: entries)?.id, "A", "輪完一圈從頭開始")
-    }
-
-    func testDataRefreshDoesNotInterruptTheCardOnScreen() {
-        var cursor = ProjectTicker.Cursor()
-        let before = ProjectTicker.entries(projects: loaded([project("A"), project("B")]))
-        cursor.advance(in: before)
-        XCTAssertEqual(cursor.current(in: before)?.id, "B")
-
-        // 60 秒重讀之後多了一個卡住的專案，排到最前面，正在顯示的那個往後挪
-        let after = ProjectTicker.entries(projects: loaded([
-            project("新的", blocker: "卡住了"), project("A"), project("B"),
-        ]))
-
-        XCTAssertEqual(cursor.current(in: after)?.id, "B",
-                       "正在顯示的那一個還在，就不該被抽走換成別的")
-    }
-
-    func testProgressChangesDoNotInterruptEither() {
-        var cursor = ProjectTicker.Cursor()
-        let before = ProjectTicker.entries(projects: loaded([project("A"), project("B")]))
-        cursor.advance(in: before)
-
-        // 同一個專案，進度變了（打勾了一項）——換的是內容不是身分，不該跳走
-        let after = ProjectTicker.entries(projects: loaded([
-            project("A"), project("B", done: 3),
-        ]))
-
-        XCTAssertEqual(cursor.current(in: after)?.id, "B")
-        XCTAssertEqual(cursor.current(in: after)?.done, 3, "但要顯示新的進度")
-    }
-
-    func testDisappearingProjectIsReplacedImmediately() {
-        var cursor = ProjectTicker.Cursor()
-        let before = ProjectTicker.entries(projects: loaded([project("A"), project("B")]))
-        cursor.advance(in: before)
-        XCTAssertEqual(cursor.current(in: before)?.id, "B")
-
-        // B 的交接紀錄被刪了
-        let after = ProjectTicker.entries(projects: loaded([project("A")]))
-        XCTAssertEqual(cursor.current(in: after)?.id, "A", "不見的那一個要立刻換掉")
-    }
-
-    func testEmptyListHasNoCurrentProject() {
-        var cursor = ProjectTicker.Cursor(showingID: "A")
-        XCTAssertNil(cursor.current(in: []))
-        XCTAssertEqual(cursor.position(in: []), 0)
-
-        cursor.advance(in: [])
-        XCTAssertNil(cursor.showingID, "空清單推進不該留著已經不存在的 id")
-    }
-
     // MARK: - 工具
 
     private func loaded(_ items: [ProjectItem]) -> SectionState<ProjectItem> {
@@ -114,14 +43,13 @@ final class ProjectTickerTests: XCTestCase {
     }
 
     private func project(_ id: String,
-                         done: Int = 1,
                          blocker: String? = nil) -> ProjectItem {
         ProjectItem(id: id,
                     name: id,
                     status: .yellow,
                     statusText: "🟡 進行中",
                     updated: nil,
-                    done: done,
+                    done: 1,
                     total: 4,
                     openTodos: ["待辦一", "待辦二"],
                     blocker: blocker,
@@ -136,12 +64,6 @@ final class ProjectTickerTests: XCTestCase {
 /// `--snapshot` 的 `-char-expanded-*.png` 與 `-ticker-*.png` 兩張圖。
 @MainActor
 final class ProjectCardSharingTests: XCTestCase {
-
-    func testTodoLimitLivesOnTheSharedCardOnly() {
-        // 卡片自己的規則（每個專案最多列 3 項待辦）只能有一份。
-        // 這條斷言的意義在於：有人想在某一邊「只是稍微改一下」就會先動到這裡
-        XCTAssertEqual(ProjectCardView.todoLimit, 3)
-    }
 
     func testStatusNotesAreTheOnlyDifferenceBetweenTheTwoModes() {
         // 角色模式展開是「特地點開來看專案」，讀不到要講話；

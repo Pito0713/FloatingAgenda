@@ -110,11 +110,8 @@ enum DevSnapshot {
             guard writePNG(cgImage, scale: 2, to: path) else { return 1 }
             print("✅ \(path)  \(cgImage.width)×\(cgImage.height)px")
 
-            // 完整卡片 ＋ 專案輪播（使用者 2026-09-29 要求）。
-            //
-            // 刻意**另外輸出一張**，不併進上面那張主圖：§7.1 要求完整模式的 snapshot
-            // 逐位元組不變，而沒有交接紀錄的人看到的就是上面那張。
-            // `projectsAreAnimating: false` → 不建立計時器，永遠停在第一個專案，輸出可重現
+            // 完整卡片 ＋ 專案區（2026-11-10 起所有專案一次攤開，含 review 狀態）。
+            // 另外輸出一張：沒有交接紀錄的人看到的就是上面那張主圖
             let ticker = WidgetView(eventsState: .loaded(items: events, total: events.count),
                                     remindersState: .loaded(items: reminders,
                                                             total: reminders.count),
@@ -122,8 +119,7 @@ enum DevSnapshot {
                                     background: .opaque,
                                     now: MockData.referenceDate(),
                                     projectsState: .loaded(items: MockData.projects(),
-                                                           total: MockData.projects().count),
-                                    projectsAreAnimating: false)
+                                                           total: MockData.projects().count))
                 .frame(width: PanelMetrics.width)
                 .fixedSize(horizontal: false, vertical: true)
                 .environment(\.colorScheme, item.scheme)
@@ -134,6 +130,24 @@ enum DevSnapshot {
             let tickerPath = "\(prefix)-ticker-\(item.suffix).png"
             guard writePNG(tickerImage, scale: 2, to: tickerPath) else { return 1 }
             print("✅ \(tickerPath)  \(tickerImage.width)×\(tickerImage.height)px")
+
+            // 今天沒有行程 → 預告明天（2026-11-10）
+            let tomorrow = WidgetView(eventsState: .loaded(items: [], total: 0),
+                                      tomorrowEvents: MockData.tomorrowEvents(),
+                                      remindersState: .loaded(items: reminders,
+                                                              total: reminders.count),
+                                      background: .opaque,
+                                      now: MockData.referenceDate())
+                .frame(width: PanelMetrics.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .environment(\.colorScheme, item.scheme)
+            guard let tomorrowImage = render(tomorrow, appearance: appearance) else {
+                fail("ImageRenderer 產不出明天預告的卡片")
+                return 1
+            }
+            let tomorrowPath = "\(prefix)-tomorrow-\(item.suffix).png"
+            guard writePNG(tomorrowImage, scale: 2, to: tomorrowPath) else { return 1 }
+            print("✅ \(tomorrowPath)  \(tomorrowImage.width)×\(tomorrowImage.height)px")
 
             // 完整卡片 ＋ 排程區（使用者 2026-10-12 要求）。
             // 另外輸出一張，理由同上面的專案輪播：主圖要逐位元組不變
@@ -257,8 +271,6 @@ enum DevSnapshot {
                 background: .opaque,
                 now: MockData.referenceDate(),
                 projectsState: .loaded(items: mockProjects, total: mockProjects.count),
-                // 輪播停在第一個專案，輸出才可重現
-                projectsAreAnimating: false,
                 characterMood: .worried)
                 .frame(width: PanelMetrics.width)
                 .fixedSize(horizontal: false, vertical: true)

@@ -5,8 +5,10 @@ import SwiftUI
 /// 沒有排程、還在讀、讀不到時**整塊不存在**——同完整模式的專案區，
 /// 沒設過排程的人卡片下面不該多掛一行字。
 /// 這個 View 不認識 `ScheduleStore`，狀態與互動都是注入的。
+///
+/// 2026-11-10 起全部列出（原本最多 4 個），每列分成「觸發規則 · 下次執行」與
+/// 「執行狀態（PID／上次結束代碼）」兩行——展開的卡片是看詳情的地方（使用者要求）
 struct SchedulesSection: View {
-    static let displayLimit = 4
 
     let state: SectionState<ScheduleItem>
     let now: Date
@@ -23,21 +25,20 @@ struct SchedulesSection: View {
                 Divider()
                     .padding(.bottom, 2)
                     .allowsHitTesting(false)
-                Text("排程")
-                    .font(.system(size: 13, weight: .semibold))
-                    .allowsHitTesting(false)
+                HStack {
+                    Text("排程")
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Text("\(total) 個")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .allowsHitTesting(false)
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(items.prefix(Self.displayLimit)) { item in
+                    ForEach(items) { item in
                         ScheduleRow(item: item, now: now,
                                     isActionable: actionableIDs.contains(item.id),
                                     onOpen: { onOpen(item) })
-                    }
-                    if total > Self.displayLimit {
-                        Text("還有 \(total - Self.displayLimit) 個排程")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 6)
-                            .allowsHitTesting(false)
                     }
                 }
             }
@@ -63,7 +64,11 @@ private struct ScheduleRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(Formatting.scheduleDetail(for: item, now: now))
+                Text(Formatting.scheduleTiming(for: item, now: now))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(Formatting.scheduleRunStatus(for: item))
                     .font(.system(size: 11))
                     .foregroundStyle(isFailed ? Color.red : Color.secondary)
                     .lineLimit(1)
@@ -120,6 +125,26 @@ extension Formatting {
             return (["上次失敗（代碼 \(exit)）"] + [next ?? rule]).joined(separator: " · ")
         case .idle:
             return ([rule] + [next].compactMap { $0 }).joined(separator: " · ")
+        }
+    }
+
+    /// 展開卡片排程列的第二行：觸發規則 · 下次執行
+    /// - 平日 16:30 · 下次 今天 16:30
+    /// - 不定時
+    static func scheduleTiming(for item: ScheduleItem, now: Date) -> String {
+        let next = LaunchSchedule.nextRun(item.trigger, after: now).map { "下次 \(relativeTime($0, now: now))" }
+        return ([LaunchSchedule.describe(item.trigger)] + [next].compactMap { $0 })
+            .joined(separator: " · ")
+    }
+
+    /// 展開卡片排程列的第三行：執行狀態
+    static func scheduleRunStatus(for item: ScheduleItem) -> String {
+        switch item.run {
+        case .running(let pid): "執行中 · PID \(pid)"
+        case .notLoaded: "未載入（launchd 裡找不到）"
+        case .idle(nil): "已載入 · 還沒跑完過"
+        case .idle(0?): "上次結束 ✅ 正常"
+        case .idle(let exit?): "上次結束 ❌ 失敗（代碼 \(exit)）"
         }
     }
 

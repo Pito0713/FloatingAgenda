@@ -20,6 +20,8 @@ final class AgendaStore {
     @ObservationIgnored private let store = EKEventStore()
 
     private(set) var eventsState: SectionState<EventItem> = .loading
+    /// 明天的行程。只在今天沒有行程時拿來預告（展開模式），讀不到就是空陣列
+    private(set) var tomorrowEvents: [EventItem] = []
     private(set) var remindersState: SectionState<ReminderItem> = .loading
     private(set) var calendars: [CalendarInfo] = []
     private(set) var reminderLists: [CalendarInfo] = []
@@ -211,21 +213,26 @@ final class AgendaStore {
         return visible.isEmpty ? nil : visible
     }
 
-    /// 只有今天（今天 00:00 到今天結束）——2026-09-16 需求變更，原本是 7 天
+    /// 只有今天（今天 00:00 到今天結束）——2026-09-16 需求變更，原本是 7 天。
+    /// 明天那一天另外讀進 `tomorrowEvents`，只用來在今天沒有行程時預告（2026-11-10）
     private func loadEvents(now: Date) {
         guard hasFullAccess(to: .event) else {
             eventsState = .needsPermission
+            setTomorrowEvents([])
             return
         }
         guard let calendars = visibleCalendars(for: .event) else {
             eventsState = .loaded(items: [], total: 0)
+            setTomorrowEvents([])
             return
         }
 
         let calendar = Formatting.calendar
         let startOfToday = calendar.startOfDay(for: now)
-        guard let end = calendar.date(byAdding: .day, value: 1, to: startOfToday) else {
+        guard let end = calendar.date(byAdding: .day, value: 1, to: startOfToday),
+              let endOfTomorrow = calendar.date(byAdding: .day, value: 2, to: startOfToday) else {
             eventsState = .failed("讀取失敗：無法計算查詢區間")
+            setTomorrowEvents([])
             return
         }
 
@@ -235,18 +242,34 @@ final class AgendaStore {
                 // 已經結束的不顯示；整天行程只要還涵蓋今天就保留
                 event.isAllDay ? event.endDate > startOfToday : event.endDate > now
             }
-            .map { event in
-                EventItem(eventIdentifier: event.eventIdentifier,
-                          calendarID: event.calendar.calendarIdentifier,
-                          title: event.title ?? "（無標題）",
-                          start: event.startDate,
-                          end: event.endDate,
-                          isAllDay: event.isAllDay,
-                          color: NSColor(cgColor: event.calendar.cgColor) ?? .systemBlue)
-            }
+            .map(Self.item(from:))
             .sorted(by: Self.eventOrder)
 
         eventsState = .loaded(items: items, total: items.count)
+
+        // 明天：開始時間落在明天的才算，跨過午夜延續到明天的今天行程不重複列
+        let tomorrowPredicate = store.predicateForEvents(withStart: end, end: endOfTomorrow,
+                                                         calendars: calendars)
+        setTomorrowEvents(store.events(matching: tomorrowPredicate)
+            .filter { $0.startDate >= end }
+            .map(Self.item(from:))
+            .sorted(by: Self.eventOrder))
+    }
+
+    private static func item(from event: EKEvent) -> EventItem {
+        EventItem(eventIdentifier: event.eventIdentifier,
+                  calendarID: event.calendar.calendarIdentifier,
+                  title: event.title ?? "（無標題）",
+                  start: event.startDate,
+                  end: event.endDate,
+                  isAllDay: event.isAllDay,
+                  color: NSColor(cgColor: event.calendar.cgColor) ?? .systemBlue,
+                  calendarTitle: event.calendar.title)
+    }
+
+    /// 同 `reloadCalendarLists`：內容沒變就不指派，避免 60 秒重讀白重繪
+    private func setTomorrowEvents(_ events: [EventItem]) {
+        if events != tomorrowEvents { tomorrowEvents = events }
     }
 
     /// 整天行程一律排最前面，其餘依開始時間、標題排序（PLAN §4.3）。
@@ -362,9 +385,21 @@ final class AgendaStore {
                                     due: due,
                                     dueHasTime: components.hour != nil,
                                     color: NSColor(cgColor: reminder.calendar.cgColor) ?? .systemBlue,
-                                    created: reminder.creationDate)
+                                    created: reminder.creationDate,
+                                    listTitle: reminder.calendar.title,
+                                    note: firstLine(of: reminder.notes),
+                                    priority: reminder.priority)
             }
             .sorted(by: reminderOrder)
+    }
+
+    /// 備註只取第一個非空白行：卡片上只給一行，整段貼上來會把版面撐爆
+    nonisolated static func firstLine(of notes: String?) -> String? {
+        notes?
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
     }
 
     /// 顯示中的提醒依到期時間由早到晚，同到期時間依標題排序。

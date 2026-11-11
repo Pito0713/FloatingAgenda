@@ -14,6 +14,8 @@ struct EventItem: Identifiable, Hashable {
     let end: Date
     let isAllDay: Bool
     let color: NSColor
+    /// 所屬行事曆的名稱，展開模式顯示在時間後面。沒有就是空字串
+    let calendarTitle: String
 
     /// - Parameter calendarID: 只用來在缺 `eventIdentifier` 時組出穩定的 `id`，不會被保存。
     init(eventIdentifier: String?,
@@ -22,7 +24,8 @@ struct EventItem: Identifiable, Hashable {
          start: Date,
          end: Date,
          isAllDay: Bool,
-         color: NSColor) {
+         color: NSColor,
+         calendarTitle: String = "") {
         // 沒有 eventIdentifier 時**絕不能用 UUID()**：那會讓每次重讀算出不同的 id，
         // SwiftUI 的 ForEach 識別跟著漂移，列會不斷重建、淡出動畫也會失準。
         // 改用「行事曆 ID ＋ 標題」這組在重讀之間穩定的欄位。
@@ -42,6 +45,7 @@ struct EventItem: Identifiable, Hashable {
         self.end = end
         self.isAllDay = isAllDay
         self.color = color
+        self.calendarTitle = calendarTitle
     }
 }
 
@@ -55,6 +59,12 @@ struct ReminderItem: Identifiable, Hashable {
     /// 所屬清單顏色
     let color: NSColor
     let created: Date?
+    /// 所屬清單名稱。沒有就是空字串
+    var listTitle: String = ""
+    /// 備註的第一行（去掉前後空白）；沒有備註就是 nil
+    var note: String?
+    /// EventKit 的優先順序：0 無、1–4 高、5 中、6–9 低
+    var priority: Int = 0
 }
 
 enum SectionState<T> {
@@ -105,6 +115,8 @@ struct ProjectItem: Identifiable, Hashable {
     /// 「卡住的點」區段；沒有卡住就是 nil
     let blocker: String?
     let fileURL: URL
+    /// `~/.agent-reports/project-review/<id>/status.json`；沒登記 review 就是 nil
+    var review: ReviewStatus? = nil
 
     /// 有卡住的點一律排在所有沒卡住的前面，其餘照燈號
     var sortRank: Int { blocker == nil ? status.rank : 0 }

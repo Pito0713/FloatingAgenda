@@ -10,6 +10,8 @@ enum CardBackground {
 /// 卡片根視圖：標題 ＋ 行程區 ＋ 提醒區（PLAN §4.2）。
 struct WidgetView: View {
     let eventsState: SectionState<EventItem>
+    /// 明天的行程，只在今天沒有行程時預告（2026-11-10）。收合模式不用
+    var tomorrowEvents: [EventItem] = []
     let remindersState: SectionState<ReminderItem>
     /// 顯示為已勾選的提醒，涵蓋緩衝期與寫入成功後等待 refresh 移除的期間
     var pendingReminderIDs: Set<String> = []
@@ -22,12 +24,16 @@ struct WidgetView: View {
     var onToggleCollapsed: () -> Void = {}
 
     /// 提醒區下方的專案區（M9 計畫 §4.5）。**完整模式與角色模式展開後共用這一個參數**
-    /// ——兩邊畫的是同一個 `ProjectsSection`（一次一張卡、8 秒輪播），
+    /// ——兩邊畫的是同一個 `ProjectsSection`（所有專案一次攤開），
     /// 一邊一個參數就會開始不同步（使用者 2026-09-29 要求）。
-    /// 收合模式與角色模式待機一律傳 nil，畫面與 M9 之前完全一樣
+    /// 收合模式與角色模式待機一律傳 nil
     var projectsState: SectionState<ProjectItem>?
-    /// 輪播要不要跑。面板隱藏、螢幕睡眠、snapshot 傳 false
-    var projectsAreAnimating = true
+    /// 點專案卡上的 review 狀態，開啟報告（ADR-032）
+    var onOpenReview: (URL) -> Void = { _ in }
+    /// 展開的卡片最多多高（不含外圍 padding），超過就捲動（使用者 2026-11-10 同意）。
+    /// App 依螢幕可用高度傳入；nil ＝ 不捲動、照內容長高——snapshot 走這條，
+    /// `ImageRenderer` 畫 `ScrollView` 只會畫出可視範圍
+    var maxContentHeight: CGFloat?
     /// 提醒區與專案區之間的排程區（使用者 2026-10-12 要求）。
     /// 規則同 `projectsState`：完整模式與角色模式展開後共用，其他情況傳 nil
     var schedulesState: SectionState<ScheduleItem>?
@@ -54,6 +60,8 @@ struct WidgetView: View {
     var onOpenReminderSettings: () -> Void = {}
 
     @State private var isHoveringCard = false
+    /// 展開內容的自然高度，用來決定要不要換成捲動
+    @State private var expandedContentHeight: CGFloat = 0
 
     var body: some View {
         content
@@ -74,67 +82,64 @@ struct WidgetView: View {
     @ViewBuilder
     private var content: some View {
         if isCollapsed {
-            VStack(alignment: .leading, spacing: 4) {
-                collapsedDragStrip
-                CollapsedCardView(eventsState: eventsState,
-                                  remindersState: remindersState,
-                                  pendingIDs: pendingReminderIDs,
-                                  errorMessage: reminderError,
-                                  now: now,
-                                  onOpenEvent: onOpenEvent,
-                                  onToggleReminder: onToggleReminder,
-                                  onOpenReminder: onOpenReminder,
-                                  onOpenCalendarSettings: onOpenCalendarSettings,
-                                  onOpenReminderSettings: onOpenReminderSettings)
-            }
-        } else if characterMood != nil {
-            // 角色模式展開的卡片。分支條件是「有沒有那隻標題列小精靈」而不是
-            // 「有沒有專案」——專案區兩個模式都有，那不是這兩個排版的差別
-            VStack(alignment: .leading, spacing: 10) {
-                fixedSections
-                if let schedulesState {
-                    schedulesSection(schedulesState)
-                }
-                if let projectsState {
-                    projectsSection(projectsState, showsStatusNotes: true)
-                }
-            }
+            collapsedContent
         } else {
-            // ⚠️ 這個分支**不要改成共用 `fixedSections`**。
-            // 多一層 VStack 或多一個 `.onGeometryChange` 都會讓文字的
-            // 反鋸齒差上 1–2/255——肉眼看不出來，但 §7.1 要求
-            // 完整與收合模式的 snapshot 逐位元組不變（實測踩到）。
-            //
-            // 2026-09-29 在最下面加了專案輪播。它是**同一層的兄弟節點**，
-            // 而且 `projectsState == nil`（或一個專案都沒有）時整塊不存在，
-            // 所以沒有專案的情況下這個分支的渲染結果仍與 M9 之前逐位元組相同
-            VStack(alignment: .leading, spacing: 10) {
-                // 純顯示的區塊一律關掉 hit testing，讓下層拖曳區吃到點擊；
-                // 行程列自己要可點，所以不能整層關
-                HeaderView(date: now)
-                    .allowsHitTesting(false)
-                EventsSection(state: eventsState,
+            scrollingIfNeeded(expandedContent)
+        }
+    }
+
+    /// 放得下就照原樣畫，放不下才包進 `ScrollView`。
+    ///
+    /// 不一律包：`ScrollView` 會吃掉落在內容上的 mouseDown，
+    /// 那些點本來會穿到下層的 `WindowDragArea` 拿來拖面板。
+    /// 只在真的超高時才付這個代價（此時還能從外圍 16pt 的邊拖）
+    @ViewBuilder
+    private func scrollingIfNeeded(_ inner: some View) -> some View {
+        let measured = inner.onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+            expandedContentHeight = $0
+        }
+        if let maxContentHeight, expandedContentHeight > maxContentHeight {
+            ScrollView(.vertical) {
+                measured
+            }
+            .scrollIndicators(.automatic)
+            .frame(height: maxContentHeight)
+        } else {
+            measured
+        }
+    }
+
+    /// 收合模式。不經過 `scrollingIfNeeded`：只有兩列，而且它的 snapshot 要與改版前逐位元組相同
+    private var collapsedContent: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            collapsedDragStrip
+            CollapsedCardView(eventsState: eventsState,
+                              remindersState: remindersState,
+                              pendingIDs: pendingReminderIDs,
+                              errorMessage: reminderError,
                               now: now,
-                              onOpen: onOpenEvent,
-                              onOpenSettings: onOpenCalendarSettings)
-                Divider()
-                    .allowsHitTesting(false)
-                RemindersSection(state: remindersState,
-                                 pendingIDs: pendingReminderIDs,
-                                 errorMessage: reminderError,
-                                 now: now,
-                                 onToggle: onToggleReminder,
-                                 onOpen: onOpenReminder,
-                                 onOpenSettings: onOpenReminderSettings)
-                // 排程區與專案區一樣是同一層的兄弟節點，nil 或沒有排程時整塊不存在，
-                // 上面「逐位元組不變」的保證照樣成立
-                if let schedulesState {
-                    schedulesSection(schedulesState)
-                }
-                if let projectsState {
-                    // 角色模式展開後是同一個 View，只差在讀不到資料時說不說話
-                    projectsSection(projectsState, showsStatusNotes: false)
-                }
+                              onOpenEvent: onOpenEvent,
+                              onToggleReminder: onToggleReminder,
+                              onOpenReminder: onOpenReminder,
+                              onOpenCalendarSettings: onOpenCalendarSettings,
+                              onOpenReminderSettings: onOpenReminderSettings)
+        }
+    }
+
+    /// 完整模式與角色模式展開共用同一套排版（2026-11-10 起）。
+    ///
+    /// 原本完整模式刻意自己寫一份、不共用 `fixedSections`，是為了守住
+    /// §7.1「完整模式 snapshot 逐位元組不變」——多一層 VStack 就會讓反鋸齒差 1–2/255。
+    /// 改成看詳情的版面時使用者同意換掉那批基準圖，兩份就沒有理由再分開維護。
+    /// 唯一的差別：角色模式展開是特地點開來看專案的，讀不到資料要說一句話
+    private var expandedContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            fixedSections
+            if let schedulesState {
+                schedulesSection(schedulesState)
+            }
+            if let projectsState {
+                projectsSection(projectsState, showsStatusNotes: characterMood != nil)
             }
         }
     }
@@ -142,9 +147,10 @@ struct WidgetView: View {
     private func projectsSection(_ state: SectionState<ProjectItem>,
                                  showsStatusNotes: Bool) -> some View {
         ProjectsSection(state: state,
-                        isAnimating: projectsAreAnimating,
+                        now: now,
                         showsStatusNotes: showsStatusNotes,
-                        onOpen: onOpenProject)
+                        onOpen: onOpenProject,
+                        onOpenReview: onOpenReview)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -155,13 +161,14 @@ struct WidgetView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// 標題、行程、提醒。三塊都取自己的理想高度（§4.5 規定不捲）
+    /// 標題、行程、提醒。三塊都取自己的理想高度，超高時整張卡一起捲（`scrollingIfNeeded`）
     private var fixedSections: some View {
         VStack(alignment: .leading, spacing: 10) {
             // 純顯示的區塊一律關掉 hit testing，讓下層拖曳區吃到點擊；
             // 行程列自己要可點，所以不能整層關
             header
             EventsSection(state: eventsState,
+                          tomorrow: tomorrowEvents,
                           now: now,
                           onOpen: onOpenEvent,
                           onOpenSettings: onOpenCalendarSettings)

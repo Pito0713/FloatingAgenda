@@ -144,6 +144,9 @@ enum DevDump {
                 let blocked = item.blocker == nil ? "未卡住" : "卡住：\(item.blocker!)"
                 print("  · \(item.id) | \(light) | "
                       + "\(item.done)/\(item.total) | \(updated) | \(blocked)")
+                if let review = item.review {
+                    print("      review：\(ReviewStatusDisplay.line(for: review, now: Date()).text)")
+                }
                 for todo in item.openTodos.prefix(3) {
                     print("      ○ \(todo)")
                 }

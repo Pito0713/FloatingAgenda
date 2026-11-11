@@ -38,13 +38,18 @@ final class ProjectStore {
     /// 掃描是非同步的，用世代編號丟掉過期結果（沿用 AgendaStore 的作法）
     @ObservationIgnored private var generation = 0
 
+    /// - Parameter reviewRoot: project-review 的報告目錄（ADR-032）。
+    ///   預設是 `~/.agent-reports/project-review`；一樣只讀不寫
     init(root: URL? = nil,
+         reviewRoot: URL? = nil,
          scanner: (@Sendable (URL) -> SectionState<ProjectItem>)? = nil) {
         // 不寫死 `~`：`NSString.expandingTildeInPath` 在沙盒或換使用者時會給錯的路徑
-        self.root = root ?? FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent(".agent-sessions", isDirectory: true)
-        self.scanner = scanner ?? { Self.scan(root: $0) }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        self.root = root ?? home.appendingPathComponent(".agent-sessions", isDirectory: true)
+        let reviewRoot = reviewRoot ?? home
+            .appendingPathComponent(".agent-reports", isDirectory: true)
+            .appendingPathComponent("project-review", isDirectory: true)
+        self.scanner = scanner ?? { Self.scan(root: $0, reviewRoot: reviewRoot) }
     }
 
     deinit {
@@ -85,8 +90,9 @@ final class ProjectStore {
     /// `nonisolated` 是刻意標出來的：這個方法在背景執行緒跑。
     /// 不標的話它會繼承 `@MainActor`，宣告與實際執行環境不符（M2 踩過同一個坑）。
     ///
-    /// 不標 `private` 是為了讓測試直接驗掃描結果，不必輪詢非同步狀態
-    nonisolated static func scan(root: URL) -> SectionState<ProjectItem> {
+    /// 不標 `private` 是為了讓測試直接驗掃描結果，不必輪詢非同步狀態。
+    /// `reviewRoot` 是 nil 就不讀 review 狀態——測試預設走這條，不會讀到使用者真正的報告
+    nonisolated static func scan(root: URL, reviewRoot: URL? = nil) -> SectionState<ProjectItem> {
         let manager = FileManager.default
 
         var isDirectory: ObjCBool = false
@@ -110,7 +116,11 @@ final class ProjectStore {
             // 第一層只看資料夾：`README.md`、`registry.tsv`、`hook.log` 不是專案
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey])
             guard values?.isDirectory == true else { continue }
-            if let item = read(directory: entry) { items.append(item) }
+            guard var item = read(directory: entry) else { continue }
+            if let reviewRoot {
+                item.review = ReviewStatusParser.read(projectID: item.id, root: reviewRoot)
+            }
+            items.append(item)
         }
 
         items.sort(by: order)

@@ -106,6 +106,9 @@ struct PanelRootView: View {
     var isExpanded = false
     var onToggleExpanded: () -> Void = {}
     var characterMenu: () -> NSMenu? = { nil }
+    /// 展開的卡片內容最多多高，超過就捲動（使用者 2026-11-10 同意）。
+    /// 由 `PanelController` 依面板所在螢幕的可用高度算好傳進來
+    var maxContentHeight: CGFloat?
     private let store = AgendaStore.shared
     private let projects = ProjectStore.shared
     private let schedules = ScheduleStore.shared
@@ -214,10 +217,11 @@ struct PanelRootView: View {
         Mood.decide(reminders: store.remindersState, projects: projects.state, now: Date())
     }
 
-    // MARK: - 完整／收合模式（M9 之前就有的畫面，一個字都不能動）
+    // MARK: - 完整／收合模式
 
     private var widget: some View {
         WidgetView(eventsState: store.eventsState,
+                   tomorrowEvents: store.tomorrowEvents,
                    remindersState: store.remindersState,
                    pendingReminderIDs: store.pendingCompletion,
                    reminderError: store.completionError,
@@ -225,7 +229,8 @@ struct PanelRootView: View {
                    isCollapsed: mode == .collapsed,
                    onToggleCollapsed: onToggleCollapsed,
                    projectsState: visibleProjectTickerState,
-                   projectsAreAnimating: isAnimating,
+                   onOpenReview: { NSWorkspace.shared.open($0) },
+                   maxContentHeight: maxContentHeight,
                    schedulesState: visibleSchedulesState,
                    onOpenSchedule: { openSchedule($0) },
                    actionableScheduleIDs: Set(scheduleCommands.keys),
@@ -315,12 +320,14 @@ struct PanelRootView: View {
     /// 所有既有互動都跟完整模式一樣，只是多了標題列的小精靈與下方的專案區
     private var expandedCard: some View {
         WidgetView(eventsState: store.eventsState,
+                   tomorrowEvents: store.tomorrowEvents,
                    remindersState: store.remindersState,
                    pendingReminderIDs: store.pendingCompletion,
                    reminderError: store.completionError,
                    background: .blur,
                    projectsState: visibleProjectsState,
-                   projectsAreAnimating: isAnimating,
+                   onOpenReview: { NSWorkspace.shared.open($0) },
+                   maxContentHeight: maxContentHeight,
                    schedulesState: visibleSchedulesState,
                    onOpenSchedule: { openSchedule($0) },
                    actionableScheduleIDs: Set(scheduleCommands.keys),
@@ -335,7 +342,7 @@ struct PanelRootView: View {
                    onOpenCalendarSettings: { store.openPrivacySettings(for: .event) },
                    onOpenReminderSettings: { store.openPrivacySettings(for: .reminder) })
             .frame(width: PanelMetrics.width)
-            // 高度上限由 WidgetView 內部的專案區自己吸收（§4.5），
+            // 高度上限由 WidgetView 自己吸收（超過 maxContentHeight 就捲動），
             // 這裡照常取理想高度
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -536,6 +543,18 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.invalidateShadow()
     }
 
+    /// 展開的卡片內容最多多高：面板所在螢幕的可用高度，扣掉上下留白與卡片的 padding。
+    /// 螢幕換了（`observeScreenChanges`）會重建 rootView，這個值跟著重算
+    private var maxContentHeight: CGFloat? {
+        guard let screen = panel.screen ?? NSScreen.main else { return nil }
+        return Self.maxContentHeight(screenHeight: screen.visibleFrame.height)
+    }
+
+    /// 抽成純函式讓算式能被測試釘住
+    static func maxContentHeight(screenHeight: CGFloat) -> CGFloat {
+        max(200, screenHeight - PanelMetrics.screenInset * 2 - PanelMetrics.padding * 2)
+    }
+
     /// rootView 是值型別，重新指派才會讓 SwiftUI 讀到新的 mode
     private func rebuildRootView() {
         let key = currentSizeKey
@@ -556,7 +575,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             isAnimating: isAnimationActive && panel.isVisible,
             isExpanded: isCharacterExpanded,
             onToggleExpanded: { [weak self] in self?.toggleCharacterExpanded() },
-            characterMenu: { [weak self] in self?.makeCharacterMenu() })
+            characterMenu: { [weak self] in self?.makeCharacterMenu() },
+            maxContentHeight: maxContentHeight)
     }
 
     /// 右鍵選單（M9 計畫 §4.2）
@@ -728,6 +748,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             // queue 指定 .main，所以這裡確定在主執行緒上
             MainActor.assumeIsolated {
                 self?.recoverIfOffscreen()
+                // 螢幕解析度或排列變了，捲動的高度上限要重算
+                self?.rebuildRootView()
             }
         }
         observePowerAndSession()
@@ -917,6 +939,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     // MARK: - NSWindowDelegate
+
+    /// 拖到另一個螢幕：捲動的高度上限要照新螢幕重算
+    func windowDidChangeScreen(_ notification: Notification) {
+        rebuildRootView()
+    }
 
     func windowDidMove(_ notification: Notification) {
         guard !isAdjustingFrame else { return }

@@ -21,7 +21,8 @@ enum MockData {
                       start: startOfToday,
                       end: calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? startOfToday,
                       isAllDay: true,
-                      color: .systemPurple),
+                      color: .systemPurple,
+                      calendarTitle: "台灣節日"),
             // 刻意讓這筆包含基準時間，用來檢查「進行中」文案
             EventItem(eventIdentifier: "mock-meeting",
                       calendarID: "mock-calendar",
@@ -29,14 +30,16 @@ enum MockData {
                       start: base.addingTimeInterval(-30 * 60),
                       end: base.addingTimeInterval(30 * 60),
                       isAllDay: false,
-                      color: .systemBlue),
+                      color: .systemBlue,
+                      calendarTitle: "工作"),
             EventItem(eventIdentifier: "mock-cooking",
                       calendarID: "mock-calendar",
                       title: "煮飯",
                       start: calendar.date(byAdding: .hour, value: 5, to: base) ?? base,
                       end: calendar.date(byAdding: .hour, value: 6, to: base) ?? base,
                       isAllDay: false,
-                      color: .systemOrange),
+                      color: .systemOrange,
+                      calendarTitle: "煮飯"),
             // 以下刻意讓總數超過 6 筆，用來驗證「還有 N 個行程」的收斂
             EventItem(eventIdentifier: "mock-shipping",
                       calendarID: "mock-calendar",
@@ -80,17 +83,26 @@ enum MockData {
         }
 
         return [
+            // 前幾天就逾期：驗證「逾期 N 天」
+            ReminderItem(id: "mock-overdue-days", title: "繳水費",
+                         due: calendar.date(byAdding: .day, value: -3, to: today(10) ?? base),
+                         dueHasTime: true,
+                         color: .systemRed, created: base.addingTimeInterval(-604800),
+                         listTitle: "工作"),
             // 只有日期沒有時間 → 排在當天最前面，且不算逾期（灰字）
             ReminderItem(id: "mock-dateonly", title: "買牛奶",
                          due: calendar.startOfDay(for: base), dueHasTime: false,
-                         color: .systemOrange, created: base.addingTimeInterval(-86400)),
+                         color: .systemOrange, created: base.addingTimeInterval(-86400),
+                         listTitle: "購物"),
             // 逾期：早於基準時間 09:00 → 紅字
             ReminderItem(id: "mock-overdue", title: "回覆訊息",
                          due: today(7), dueHasTime: true,
-                         color: .systemRed, created: base.addingTimeInterval(-172800)),
+                         color: .systemRed, created: base.addingTimeInterval(-172800),
+                         listTitle: "工作", note: "記得附上報價單", priority: 1),
             ReminderItem(id: "mock-today", title: "領包裹",
                          due: today(14), dueHasTime: true,
-                         color: .systemBlue, created: base.addingTimeInterval(-3600)),
+                         color: .systemBlue, created: base.addingTimeInterval(-3600),
+                         listTitle: "個人"),
             ReminderItem(id: "mock-shipping", title: "寄送包裹",
                          due: today(18), dueHasTime: true,
                          color: .systemPink, created: base),
@@ -104,6 +116,22 @@ enum MockData {
             ReminderItem(id: "mock-read", title: "閱讀",
                          due: today(23), dueHasTime: true,
                          color: .systemGreen, created: base),
+        ]
+    }
+
+    /// 今天沒有行程時預告的明天行程（2026-11-10）
+    static func tomorrowEvents(now: Date = Date()) -> [EventItem] {
+        let base = referenceDate(now: now)
+        let calendar = Formatting.calendar
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: base) else { return [] }
+        return [
+            EventItem(eventIdentifier: "mock-tomorrow-standup", calendarID: "mock-calendar",
+                      title: "晨會", start: tomorrow, end: tomorrow.addingTimeInterval(1800),
+                      isAllDay: false, color: .systemBlue, calendarTitle: "工作"),
+            EventItem(eventIdentifier: "mock-tomorrow-dentist", calendarID: "mock-calendar",
+                      title: "看牙醫", start: tomorrow.addingTimeInterval(5 * 3600),
+                      end: tomorrow.addingTimeInterval(6.5 * 3600),
+                      isAllDay: false, color: .systemGreen, calendarTitle: "個人"),
         ]
     }
 
@@ -135,19 +163,28 @@ enum MockData {
                         done: 3, total: 8,
                         openTodos: ["等待外部回覆", "補上設定說明"],
                         blocker: "等對方開通權限，預計下週",
-                        fileURL: URL(fileURLWithPath: "/tmp/專案 A/latest.md")),
+                        fileURL: URL(fileURLWithPath: "/tmp/專案 A/latest.md"),
+                        review: review(.fail, ranAt: base, l1: "fail", failed: ["test"], lag: 2)),
             ProjectItem(id: "專案 B", name: "專案 B", status: .yellow, statusText: "🟡 進行中",
                         updated: base.addingTimeInterval(-86_400),
                         done: 5, total: 9,
                         openTodos: ["第一件待辦", "第二件待辦", "第三件待辦",
                                     "第四件待辦", "第五件待辦"],
                         blocker: nil,
-                        fileURL: URL(fileURLWithPath: "/tmp/專案 B/latest.md")),
+                        fileURL: URL(fileURLWithPath: "/tmp/專案 B/latest.md"),
+                        review: review(.ok, ranAt: base, l1: "pass")),
             ProjectItem(id: "專案 C", name: "專案 C", status: .green, statusText: "🟢 順暢",
                         updated: base.addingTimeInterval(-172_800),
                         done: 6, total: 6, openTodos: [], blocker: nil,
                         fileURL: URL(fileURLWithPath: "/tmp/專案 C/latest.md")),
         ]
+    }
+
+    private static func review(_ overall: ReviewStatus.Overall, ranAt: Date, l1: String,
+                               failed: [String] = [], lag: Int? = nil) -> ReviewStatus {
+        ReviewStatus(overall: overall, ranAt: ranAt, l1Result: l1, failedChecks: failed,
+                     carried: false, newFindings: 0, lagCommits: lag,
+                     reportURL: URL(fileURLWithPath: "/tmp/review.md"), firstError: nil)
     }
 
     /// 選單列快速啟動用：Terminal 開的 .command 一個、背景跑的腳本一個
@@ -225,7 +262,9 @@ enum MockData {
 
     static func collapsedVariants() -> [CollapsedVariant] {
         let all = events()
-        let reminders = MockData.reminders()
+        // 2026-11-10 為了展開模式的「逾期 N 天」多加的那一筆不放進收合模式：
+        // 收合模式的排版沒改，它的 snapshot 要與改版前逐位元組相同才驗得出這件事
+        let reminders = MockData.reminders().filter { $0.id != "mock-overdue-days" }
         let now = referenceDate()
         // 沒有進行中的，但今天稍後還有 → 應顯示即將到來的那一筆
         let upcomingOnly = all.filter { $0.start > now }

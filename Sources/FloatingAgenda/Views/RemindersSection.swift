@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// 提醒區（PLAN §4.4）。只顯示逾期與今天到期，最多 6 筆。
+/// 提醒區（PLAN §4.4）。只顯示逾期與今天到期，**全部列出**，分成「逾期」「今天」兩組。
+///
+/// 2026-11-10 起展開的卡片是看詳情的地方（使用者要求）：拿掉 6 筆上限，
+/// 每列多顯示清單名稱、優先順序、相對時間（逾期 3 天）與備註第一行。
 ///
 /// 勾選與開啟都用 callback 注入，View 本身不認識 AgendaStore——
 /// 這讓 `--snapshot` 能傳空實作，**結構上不可能誤觸寫入路徑**。
 struct RemindersSection: View {
-    static let displayLimit = EventsSection.displayLimit
-
     let state: SectionState<ReminderItem>
     /// 顯示為已勾選的提醒，涵蓋緩衝期與寫入成功後等待 refresh 移除的期間
     let pendingIDs: Set<String>
@@ -37,7 +38,7 @@ struct RemindersSection: View {
     /// 目前畫面上那幾列的 id，當作動畫的觸發值
     private var visibleIDs: [String] {
         guard case .loaded(let items, _) = state else { return [] }
-        return items.prefix(Self.displayLimit).map(\.id)
+        return items.map(\.id)
     }
 
     private var header: some View {
@@ -45,9 +46,8 @@ struct RemindersSection: View {
             Text("提醒事項")
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
-            if case .loaded(_, let total) = state {
-                // 是符合範圍的全部數量，不是畫面上那 6 筆
-                Text("\(total)")
+            if case .loaded(_, let total) = state, total > 0 {
+                Text("\(total) 項")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
@@ -64,26 +64,38 @@ struct RemindersSection: View {
             PermissionPrompt(message: "需要提醒事項存取權限", openSettings: onOpenSettings)
         case .failed(let message):
             note(message)
-        case .loaded(let items, let total):
+        case .loaded(let items, _):
             if items.isEmpty {
                 note("今天沒有待辦事項 🎉")
             } else {
-                let shown = Array(items.prefix(Self.displayLimit))
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(shown) { reminder in
-                        ReminderRow(reminder: reminder,
-                                    isPending: pendingIDs.contains(reminder.id),
-                                    now: now,
-                                    onToggle: { onToggle(reminder) },
-                                    onOpen: { onOpen(reminder) })
-                            .transition(.opacity)
-                    }
-                    if total > Self.displayLimit {
-                        note("還有 \(total - Self.displayLimit) 項")
-                            .padding(.leading, 30)
-                    }
+                let overdue = items.filter { Formatting.isOverdue($0, now: now) }
+                let today = items.filter { !Formatting.isOverdue($0, now: now) }
+                VStack(alignment: .leading, spacing: 6) {
+                    group("逾期", overdue, tint: .red)
+                    group("今天", today, tint: .secondary)
                 }
+            }
+        }
+    }
 
+    /// 一組（逾期／今天）。空的那組整個不畫，連小標題一起
+    @ViewBuilder
+    private func group(_ title: String, _ items: [ReminderItem], tint: Color) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(title) \(items.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .padding(.leading, 6)
+                    .allowsHitTesting(false)
+                ForEach(items) { reminder in
+                    ReminderRow(reminder: reminder,
+                                isPending: pendingIDs.contains(reminder.id),
+                                now: now,
+                                onToggle: { onToggle(reminder) },
+                                onOpen: { onOpen(reminder) })
+                        .transition(.opacity)
+                }
             }
         }
     }
@@ -97,7 +109,7 @@ struct RemindersSection: View {
     }
 }
 
-/// 單一提醒列：圓圈按鈕 ＋ 標題 ＋ 到期。
+/// 單一提醒列：圓圈按鈕 ＋ 標題（優先順序、清單名稱）＋ 到期 · 相對時間 ＋ 備註。
 /// 點圓圈＝勾選（延遲寫入），點標題＝開提醒事項 App。
 private struct ReminderRow: View {
     let reminder: ReminderItem
@@ -120,16 +132,37 @@ private struct ReminderRow: View {
             .help(isPending ? "已勾選（僅緩衝期間可再點一次取消）" : "標記完成")
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(reminder.title)
-                    .font(.system(size: 13))
-                    .strikethrough(isPending)
-                    .foregroundStyle(isPending ? Color.secondary : Color.primary)
-                    .lineLimit(1)
-                if let due = Formatting.reminderDueLabel(for: reminder, now: now) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if let mark = Formatting.priorityMark(reminder.priority) {
+                        Text(mark)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(nsColor: reminder.color))
+                    }
+                    Text(reminder.title)
+                        .font(.system(size: 13))
+                        .strikethrough(isPending)
+                        .foregroundStyle(isPending ? Color.secondary : Color.primary)
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    if !reminder.listTitle.isEmpty {
+                        Text(reminder.listTitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(nsColor: reminder.color))
+                            .lineLimit(1)
+                            .layoutPriority(-1)
+                    }
+                }
+                if let due = dueText {
                     Text(due)
                         .font(.system(size: 11))
                         .foregroundStyle(Formatting.isOverdue(reminder, now: now)
                                          ? Color.red : Color.secondary)
+                }
+                if let note = reminder.note {
+                    Text(note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
             .contentShape(Rectangle())
@@ -144,5 +177,12 @@ private struct ReminderRow: View {
                 .fill(Color.primary.opacity(isHovering ? 0.06 : 0))
         )
         .onHover { isHovering = $0 }
+    }
+
+    /// 11月7日 14:30 · 逾期 3 天
+    private var dueText: String? {
+        let parts = [Formatting.reminderDueLabel(for: reminder, now: now),
+                     Formatting.reminderRelative(for: reminder, now: now)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
