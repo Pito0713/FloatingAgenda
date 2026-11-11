@@ -169,15 +169,29 @@ enum SessionParser {
     /// 括號只在緊接著「無」時才視為補充說明。早期版本是「砍掉第一個括號之後的全部內容」，
     /// 那會讓「（後端）API 無法連線」整句被砍成空字串而誤判成沒卡住
     /// （codex 2026-09-22 指出）。
+    ///
+    /// 例外：**第一個子句明講「沒有卡點」**時，後面接什麼都算沒卡住——
+    /// 「無技術卡點。push 前三件待使用者決定」是在列待決事項，不是卡住
+    /// （使用者 2026-11-11 回報卡片誤標 ⚠️）。「無法解決卡點」開頭是「無法」，不適用
     private static func isNoBlocker(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return true }
         guard trimmed.hasPrefix("無") else { return false }
+        if declaresNoBlocker(trimmed) { return true }
 
         var rest = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
         if rest.hasPrefix("（") || rest.hasPrefix("(") { rest = "" }
         rest = rest.trimmingCharacters(in: CharacterSet(charactersIn: " 　。.、,;；!！~～-—"))
         return rest.isEmpty
+    }
+
+    /// 第一個子句是「無○○卡點／卡住／阻礙／阻塞」（○○ 最多 8 個字，例如「技術」「重大」）
+    private static func declaresNoBlocker(_ text: String) -> Bool {
+        guard !text.hasPrefix("無法") else { return false }
+        let firstClause = String(text.prefix { !"，,。.；;：:".contains($0) })
+            .trimmingCharacters(in: .whitespaces)
+        return firstClause.range(of: #"^無.{0,8}(卡點|卡住|阻礙|阻塞)$"#,
+                                 options: .regularExpression) != nil
     }
 
     /// 取 `## <name>` 到下一個 `## ` 之間的內容。找不到這個區段回 `nil`

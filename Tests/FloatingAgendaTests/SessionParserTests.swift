@@ -221,6 +221,21 @@ final class SessionParserTests: XCTestCase {
         XCTAssertEqual(item.blocker, "無重大問題，但有一項待使用者確認")
     }
 
+    /// 第一個子句明講沒有卡點，後面列的是待決事項，不是卡住（使用者 2026-11-11 回報）
+    func testExplicitNoBlockerClauseIsNotABlocker() {
+        for text in ["無技術卡點。push 前三件待使用者決定（沿用 2026-09-29）：",
+                     "無卡點，但 README 還沒更新",
+                     "無技術上的阻礙；等使用者回來驗收"] {
+            XCTAssertNil(parse("## 卡住的點\n\n\(text)\n")?.blocker, "「\(text)」應該算沒有卡住")
+        }
+    }
+
+    /// 「無法…」是真的卡住，就算句子裡有「卡點」兩個字
+    func testCannotResolveBlockerIsStillABlocker() throws {
+        let item = try XCTUnwrap(parse("## 卡住的點\n\n無法解決卡點，等對方回覆\n"))
+        XCTAssertEqual(item.blocker, "無法解決卡點，等對方回覆")
+    }
+
     func testBlockerTakesFirstParagraphOnly() throws {
         let text = """
         ## 卡住的點
