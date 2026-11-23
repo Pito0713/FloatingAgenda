@@ -60,10 +60,17 @@ enum EventReminderSync {
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
-    /// 每天自動轉換：開關打開、而且今天還沒成功轉過才跑。
+    /// 每天幾點開始轉（使用者 2026-11-23 要求固定早上 8:30）
+    static let runHour = 8
+    static let runMinute = 30
+
+    /// 每天自動轉換：開關打開、已過當天 8:30、而且今天還沒成功轉過才跑。
+    /// 60 秒定時重讀讓它在 8:30 後一分鐘內觸發；8:30 時沒開機或在睡眠，就在之後第一次 refresh 補跑。
     /// 一天只跑一次，使用者當天刪掉的提醒才不會被下一輪重讀建回來
     static func shouldAutoRun(enabled: Bool, lastDay: String?, now: Date, calendar: Calendar) -> Bool {
-        enabled && lastDay != dayStamp(for: now, calendar: calendar)
+        guard enabled, lastDay != dayStamp(for: now, calendar: calendar) else { return false }
+        let c = calendar.dateComponents([.hour, .minute], from: now)
+        return (c.hour ?? 0, c.minute ?? 0) >= (runHour, runMinute)
     }
 }
 

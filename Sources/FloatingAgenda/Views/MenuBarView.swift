@@ -97,14 +97,14 @@ struct MenuBarView: View {
                 get: { settings.autoEventsToReminders },
                 set: { newValue in
                     settings.autoEventsToReminders = newValue
-                    // 打開就立刻轉一次（今天已經轉過的話 refresh 會自己跳過）
+                    // 打開就立刻檢查一次（還沒到 8:30 或今天已經轉過的話 refresh 會自己跳過）
                     if newValue { store.refresh() }
                     revision += 1
                 }
             ))
             .toggleStyle(.checkbox)
             .controlSize(.small)
-            .help("每天第一次讀到行程時，把今天還沒結束的行程建成「\(EventReminderSync.listTitle)」清單裡的提醒")
+            .help("每天早上 8:30（那時沒開機就在之後第一次開機）把今天還沒結束的行程建成「\(EventReminderSync.listTitle)」清單裡的提醒")
 
             if let error = store.eventSyncError {
                 Text(error)

@@ -93,6 +93,19 @@ final class EventReminderSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testAutoRunWaitsUntil830() {
+        func run(_ h: Int, _ m: Int) -> Bool {
+            EventReminderSync.shouldAutoRun(enabled: true, lastDay: "2026-11-05",
+                                            now: Fixture.date(2026, 11, 6, h, m), calendar: calendar)
+        }
+        XCTAssertFalse(run(0, 5), "過午夜不能立刻轉")
+        XCTAssertFalse(run(8, 29))
+        XCTAssertTrue(run(8, 30))
+        XCTAssertTrue(run(8, 31))
+        XCTAssertTrue(run(23, 50), "8:30 沒開機，之後開機要補跑")
+    }
+
+    @MainActor
     func testAutoRunSettingDefaultsOff() {
         let settings = Fixture.settings()
         XCTAssertFalse(settings.autoEventsToReminders, "會寫入使用者資料，預設必須關閉")
